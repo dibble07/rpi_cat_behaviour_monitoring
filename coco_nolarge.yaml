@@ -1,6 +1,6 @@
-path: coco128
+path: coco_nolarge
 train: images/train2017
-val: images/train2017
+val: images/val2017
 
 names:
   0: person

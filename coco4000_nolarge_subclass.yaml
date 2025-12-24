@@ -1,4 +1,4 @@
-path: coco128_pruned
+path: coco4000_nolarge_subclass
 train: images/train2017
 val: images/train2017
 
