@@ -1,0 +1,7 @@
+path: coco4000_nolarge_subclass_downsample
+train: images/train2017
+val: images/train2017
+
+names:
+  0: person
+  1: cat

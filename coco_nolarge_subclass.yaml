@@ -1,0 +1,7 @@
+path: coco_nolarge_subclass
+train: images/train2017
+val: images/val2017
+
+names:
+  0: person
+  1: cat

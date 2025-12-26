@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Mac
+.DS_Store
+
+# Data
+models/
+runs/
+sample_images/
