@@ -8,6 +8,8 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 # TO DO
@@ -17,10 +19,7 @@ logger = logging.getLogger(__name__)
 
 # set constants
 ANN_COLOUR = (0, 200, 0)
-BUFFER_DUR = 2
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-OUTPUT_DIR = "object_clips"
-TARGET_FPS = 10
 FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
 
 
@@ -43,23 +42,24 @@ def draw_detections(
 
 
 # prepare output directory
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
 # prepare model
 model = YOLO(os.path.join("models", "yolov8n_quantised.onnx"), task="detect")
 
 # prepare camera and buffer
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FPS, TARGET_FPS)
+cap.set(cv2.CAP_PROP_FPS, settings.TARGET_FPS)
 fps = cap.get(cv2.CAP_PROP_FPS)
-if fps != TARGET_FPS:
-    logger.warning(f"Camera FPS ({fps}) does not match target ({TARGET_FPS})")
+if fps != settings.TARGET_FPS:
+    logger.warning(f"Camera FPS ({fps}) does not match target ({settings.TARGET_FPS})")
 frame_int = 1 / fps
-pre_buffer = collections.deque(maxlen=int(BUFFER_DUR * fps))  # type: ignore
+pre_buffer = collections.deque(maxlen=int(settings.BUFFER_DUR * fps))  # type: ignore
 
 # initialise state
 recording = False
 last_detection_time = datetime.now()
+writer = None
 
 # loop indefinitely
 while True:
@@ -70,7 +70,9 @@ while True:
     pre_buffer.append((t0, frame.copy()))
 
     # identify objects in current frame
-    results = model(frame, imgsz=960, verbose=False)[0]
+    results = model(
+        frame, imgsz=settings.IMGSZ, verbose=False, max_det=settings.MAX_DETS
+    )[0]
     boxes, confs, classes = [], [], []
     for r in results.boxes:
         boxes.append(r.xyxy[0].numpy().astype(int))
@@ -82,7 +84,9 @@ while True:
     if object_present:
         last_detection_time = t0
         if not recording:
-            out_path = os.path.join(OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4")
+            out_path = os.path.join(
+                settings.OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4"
+            )
             writer = cv2.VideoWriter(out_path, FOURCC, fps, frame.shape[:2][::-1])
             for _, bf in pre_buffer:
                 writer.write(bf)
@@ -94,7 +98,7 @@ while True:
         if object_present:
             draw_detections(frame, boxes, confs, classes, names=model.names)
         writer.write(frame)
-        if t0 - last_detection_time > timedelta(seconds=BUFFER_DUR):
+        if t0 - last_detection_time > timedelta(seconds=settings.BUFFER_DUR):
             writer.release()
             logger.warning(f"Saved clip: {out_path}")
             recording = False
@@ -102,8 +106,9 @@ while True:
     # manual closing of app and recording
     cv2.imshow("Object monitor (q to quit)", frame)
     if cv2.waitKey(1) & 0xFF == ord("q"):
-        writer.release()
-        logger.warning(f"Saved clip: {out_path}")
+        if writer is not None:
+            writer.release()
+            logger.warning(f"Saved clip: {out_path}")
         break
 
     # delay next processing to match camera frame rate

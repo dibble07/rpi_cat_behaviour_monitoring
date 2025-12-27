@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Raspberry Pi app to monitor cats with live video feed and identify poor behaviour"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "dynaconf>=3.2.12",
+]
 
 [dependency-groups]
 dev = [
