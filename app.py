@@ -45,7 +45,7 @@ def draw_detections(
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
 # prepare model
-model = YOLO(os.path.join("models", "yolov8n_quantised.onnx"), task="detect")
+model = YOLO(settings.MODEL_PATH, task="detect")
 
 # prepare camera and buffer
 cap = cv2.VideoCapture(0)
