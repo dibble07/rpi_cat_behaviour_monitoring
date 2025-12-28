@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Raspberry Pi app to monitor cats with live video feed and identify poor behaviour"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "dynaconf>=3.2.12",
+    "ultralytics>=8.3.239",
+]
 
 [dependency-groups]
 dev = [
@@ -17,12 +20,14 @@ dev = [
     "onnxruntime>=1.23.2",
     "onnxruntime-tools>=1.7.0",
     "onnxslim>=0.1.80",
+    "onnxruntime>=1.23.2",
+    "onnxruntime-tools>=1.7.0",
+    "onnxslim>=0.1.80",
     "pandas>=2.3.3",
     "pre-commit==4.5.0",
     "pycocotools>=2.0.11",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
-    "ultralytics>=8.3.239",
 ]
 
 [tool.isort]
