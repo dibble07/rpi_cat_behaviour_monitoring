@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "dynaconf>=3.2.12",
+    "ultralytics>=8.3.239",
 ]
 
 [dependency-groups]
@@ -27,7 +28,6 @@ dev = [
     "pycocotools>=2.0.11",
     "seaborn>=0.13.2",
     "tqdm>=4.67.1",
-    "ultralytics>=8.3.239",
 ]
 
 [tool.isort]
