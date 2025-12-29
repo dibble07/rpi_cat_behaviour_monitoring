@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from camera import get_camera
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -48,13 +49,13 @@ os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 model = YOLO(settings.MODEL_PATH, task="detect")
 
 # prepare camera and buffer
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FPS, settings.TARGET_FPS)
-fps = cap.get(cv2.CAP_PROP_FPS)
-if fps != settings.TARGET_FPS:
-    logger.warning(f"Camera FPS ({fps}) does not match target ({settings.TARGET_FPS})")
-frame_int = 1 / fps
-pre_buffer = collections.deque(maxlen=int(settings.BUFFER_DUR * fps))  # type: ignore
+cam = get_camera()
+if cam.fps != settings.TARGET_FPS:
+    logger.warning(
+        f"Camera FPS ({cam.fps}) does not match target ({settings.TARGET_FPS})"
+    )
+frame_int = 1 / cam.fps
+pre_buffer = collections.deque(maxlen=int(settings.BUFFER_DUR * cam.fps))  # type: ignore
 
 # initialise state
 recording = False
@@ -66,7 +67,7 @@ while True:
 
     # store current frame image and timestamp to rolling buffer
     t0 = datetime.now()
-    _, frame = cap.read()
+    frame = cam()
     pre_buffer.append((t0, frame.copy()))
 
     # identify objects in current frame
@@ -87,7 +88,7 @@ while True:
             out_path = os.path.join(
                 settings.OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4"
             )
-            writer = cv2.VideoWriter(out_path, FOURCC, fps, frame.shape[:2][::-1])
+            writer = cv2.VideoWriter(out_path, FOURCC, cam.fps, frame.shape[:2][::-1])
             for _, bf in pre_buffer:
                 writer.write(bf)
             recording = True
