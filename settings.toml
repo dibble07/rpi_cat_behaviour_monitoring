@@ -1,6 +1,2 @@
 BUFFER_DUR = 2
 MODEL_PATH = "yolov8n_quantised.onnx"
-OUTPUT_DIR = "object_clips"
-TARGET_FPS = 10
-MAX_DETS = 5
-IMGSZ = 960

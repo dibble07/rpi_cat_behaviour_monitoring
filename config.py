@@ -1,7 +1,20 @@
 import os
+from platform import system
 
 from dynaconf import Dynaconf
 
-_SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.toml")
+# establish current platform
+SYSTEM = system()
 
-settings = Dynaconf(settings_files=[_SETTINGS_PATH])
+# define path to plaform specific settings
+match SYSTEM:
+    case "Darwin":
+        _SETTINGS_PATH_PLATFORM = os.path.join(
+            os.path.dirname(__file__), "settings_mac.toml"
+        )
+    case _:
+        raise ValueError(f"Unexpected system: {SYSTEM}")
+
+# load settings
+_SETTINGS_PATH_GENEREAL = os.path.join(os.path.dirname(__file__), "settings.toml")
+settings = Dynaconf(settings_files=[_SETTINGS_PATH_GENEREAL, _SETTINGS_PATH_PLATFORM])
