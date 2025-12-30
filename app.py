@@ -1,6 +1,7 @@
 import collections
 import logging
 import os
+import signal
 import time
 from datetime import datetime
 
@@ -30,14 +31,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TO DO
-# - Add motion detector pre check
 # - Handle misaligned frame and processing timings
-# - Understand timing bottlenecks
+# - Avoid current frame adding to buffer and after detection
 
-# set constants
-ANN_COLOUR = (0, 200, 0)
-FONT = cv2.FONT_HERSHEY_SIMPLEX
-FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
+
+def _handle_exit(signum, _):
+    global shutdown_requested
+    logger.info(f"Received signal {signum} to shut down")
+    shutdown_requested = True
 
 
 # add annotations to image
@@ -60,6 +61,17 @@ def draw_detections(
         logger.debug(
             f"Annotated frame with object: class = {cls}, x1y1x2y2 = {x1},{y1},{x2},{y2}"
         )
+
+
+# set constants
+ANN_COLOUR = (0, 200, 0)
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
+
+# prep terminal shutdown
+shutdown_requested = False
+signal.signal(signal.SIGINT, _handle_exit)
+signal.signal(signal.SIGTERM, _handle_exit)
 
 
 # prepare output directory
@@ -130,11 +142,11 @@ while True:
     # manual closing of app and recording
     if SYSTEM == "Darwin":
         cv2.imshow("Object monitor (q to quit)", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            if writer is not None:
-                writer.release()
-            logger.info("Saving clip: manually closed")
-            break
+    if cv2.waitKey(1) & 0xFF == ord("q") or shutdown_requested:
+        if writer is not None:
+            writer.release()
+        logger.info("Saving clip: manually closed")
+        break
 
     # delay next processing to match camera frame rate
     elapsed = (datetime.now() - t0).total_seconds()
