@@ -18,13 +18,16 @@ class Cv2_camera:
         self.fps = self.cam.get(cv2.CAP_PROP_FPS)
 
         # check frame rate set correctly
-        if self.cam.fps != settings.TARGET_FPS:
+        if self.fps != settings.TARGET_FPS:
             logger.warning(
-                f"Camera FPS ({self.cam.fps}) does not match target ({settings.TARGET_FPS})"
+                f"Camera FPS ({self.fps}) does not match target ({settings.TARGET_FPS})"
             )
+
+        logger.info(f"Camera object initialised: {self.cam}")
 
     def __call__(self):
         _, frame = self.cam.read()
+        logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
         return frame
 
 
@@ -53,8 +56,11 @@ class Picamera2_camera:
         # start camera object
         self.cam.start()
 
+        logger.info(f"Camera object initialised: {self.cam}")
+
     def __call__(self):
         frame = self.cam.capture_array()[..., :3]
+        logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
         return frame
 
 
