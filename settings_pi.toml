@@ -1,0 +1,4 @@
+OUTPUT_DIR = "object_clips"
+TARGET_FPS = 5
+MAX_DETS = 5
+IMGSZ = 960
