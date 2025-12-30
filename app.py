@@ -2,7 +2,7 @@ import collections
 import logging
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -10,6 +10,22 @@ from ultralytics import YOLO
 
 from camera import get_camera
 from config import SYSTEM, settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(
+            os.path.join(
+                settings.OUTPUT_DIR,
+                f"logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            ),
+            "a",
+        ),
+    ],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +57,9 @@ def draw_detections(
         cv2.rectangle(frame, (x1, y1), (x2, y2), ANN_COLOUR, thickness)
         cv2.rectangle(frame, (x1, y1), txt_box_coords, ANN_COLOUR, -1)
         cv2.putText(frame, label, txt_coords, FONT, 1, (255, 255, 255))
+        logger.debug(
+            f"Annotated frame with object: class = {cls}, x1y1x2y2 = {x1},{y1},{x2},{y2}"
+        )
 
 
 # prepare output directory
@@ -73,10 +92,14 @@ while True:
     )[0]
     boxes, confs, classes = [], [], []
     for r in results.boxes:
-        boxes.append(r.xyxy[0].numpy().astype(int))
-        confs.append(r.conf[0])
-        classes.append(r.cls[0])
+        boxes.append(r.xyxy[0].detach().cpu().int().tolist())
+        confs.append(float(r.conf[0].item()))
+        classes.append(int(r.cls[0].item()))
     object_present = bool(boxes)
+    if object_present:
+        logger.info(
+            f"Object(s) detected: boxes = {boxes}, confs = {confs}, classes = {classes}"
+        )
 
     # start video writing and write buffer to file
     if object_present:
@@ -86,19 +109,22 @@ while True:
                 settings.OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4"
             )
             writer = cv2.VideoWriter(out_path, FOURCC, cam.fps, frame.shape[:2][::-1])
+            logger.warning(f"Starting recording: {out_path}")
+            pre_buffer_len = len(pre_buffer)
             for _, bf in pre_buffer:
                 writer.write(bf)
+            logger.info(f"Written {pre_buffer_len} frames from pre detection buffer")
             recording = True
-            logger.warning(f"Started recording: {out_path}")
 
     # annotate current frame and write to file then close recording
     if recording:
         if object_present:
             draw_detections(frame, boxes, confs, classes, names=model.names)
         writer.write(frame)
-        if t0 - last_detection_time > timedelta(seconds=settings.BUFFER_DUR):
+        last_detection_dur = (t0 - last_detection_time).total_seconds()
+        if last_detection_dur > settings.BUFFER_DUR:
             writer.release()
-            logger.warning(f"Saved clip: {out_path}")
+            logger.info(f"Saving clip: last detection was {last_detection_dur:.3f} ago")
             recording = False
 
     # manual closing of app and recording
@@ -107,11 +133,13 @@ while True:
         if cv2.waitKey(1) & 0xFF == ord("q"):
             if writer is not None:
                 writer.release()
-                logger.warning(f"Saved clip: {out_path}")
+            logger.info("Saving clip: manually closed")
             break
 
     # delay next processing to match camera frame rate
-    delay = (timedelta(seconds=frame_int) - (datetime.now() - t0)).total_seconds()
+    elapsed = (datetime.now() - t0).total_seconds()
+    delay = frame_int - elapsed
+    logger.info(f"Processing rate is {(1/elapsed):.1f} FPS")
     if delay > 0:
-        logger.warning(f"Delay next processing by {delay:.3f} seconds")
+        logger.info(f"Delay next processing by {delay:.3f} seconds")
         time.sleep(delay)
