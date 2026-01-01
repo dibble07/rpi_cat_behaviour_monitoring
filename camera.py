@@ -14,14 +14,30 @@ class Cv2_camera:
         self.cam = cv2.VideoCapture(0)
 
         # attempt to set camera frame rate
-        self.cam.set(cv2.CAP_PROP_FPS, settings.TARGET_FPS)
+        self.cam.set(cv2.CAP_PROP_FPS, settings.FPS)
         self.fps = self.cam.get(cv2.CAP_PROP_FPS)
 
         # check frame rate set correctly
-        if self.fps != settings.TARGET_FPS:
+        if self.fps != settings.FPS:
             logger.warning(
-                f"Camera FPS ({self.fps}) does not match target ({settings.TARGET_FPS})"
+                f"Camera FPS ({self.fps}) does not match target ({settings.FPS})"
             )
+        else:
+            logger.info(f"Camera FPS: {self.fps}")
+
+        # attempt to set camera resolution
+        self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
+        self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
+        width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
+
+        # check resolution set correctly
+        if width != settings.FRAME_WIDTH or height != settings.FRAME_HEIGHT:
+            logger.warning(
+                f"Camera resolution ({int(width)} x {int(height)}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
+            )
+        else:
+            logger.info(f"Camera resolution: {int(width)} x {int(height)}")
 
         logger.info("Camera object initialised")
 
@@ -46,16 +62,10 @@ class Picamera2_camera:
         # initialise camera obejct
         self.cam = Picamera2()
 
-        # find sensor mode with best resolution that meets target frame rate
-        max_res_mode = max(
-            [x for x in self.cam.sensor_modes if x["fps"] >= settings.TARGET_FPS],
-            key=lambda m: m["size"][0] * m["size"][1],
-        )
-
         # set camera resolution and frame rate
-        self.fps = settings.TARGET_FPS
+        self.fps = settings.FPS
         config = self.cam.create_video_configuration(
-            main={"size": max_res_mode["size"]},
+            main={"size": (settings.FRAME_WIDTH, settings.FRAME_HEIGHT)},
             controls={"FrameRate": self.fps},
         )
         self.cam.configure(config)
