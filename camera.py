@@ -13,19 +13,11 @@ class Cv2_camera:
         # initialise camera object
         self.cam = cv2.VideoCapture(0)
 
-        # attempt to set camera frame rate
-        self.cam.set(cv2.CAP_PROP_FPS, settings.FPS)
+        # get camera frame rate
         self.fps = self.cam.get(cv2.CAP_PROP_FPS)
+        logger.info(f"Camera FPS: {self.fps}")
 
-        # check frame rate set correctly
-        if self.fps != settings.FPS:
-            logger.warning(
-                f"Camera FPS ({self.fps}) does not match target ({settings.FPS})"
-            )
-        else:
-            logger.info(f"Camera FPS: {self.fps}")
-
-        # attempt to set camera resolution
+        # set camera resolution
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
         self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
         width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -59,10 +51,10 @@ class Picamera2_camera:
         # import raspberry pi specific library
         from picamera2 import Picamera2
 
-        # initialise camera obejct
+        # initialise camera
         self.cam = Picamera2()
 
-        # set camera resolution and frame rate
+        # configure camera
         self.fps = settings.FPS
         config = self.cam.create_video_configuration(
             main={
@@ -78,7 +70,7 @@ class Picamera2_camera:
         )
         self.cam.configure(config)
 
-        # start camera object
+        # start camera
         self.cam.start()
 
         logger.info("Camera object initialised")
