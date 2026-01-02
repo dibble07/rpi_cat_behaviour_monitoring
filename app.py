@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+import utils
 from camera import get_camera
 from config import SYSTEM, settings
 
@@ -36,36 +37,13 @@ logger = logging.getLogger(__name__)
 
 
 def _handle_exit(signum, _):
+    """Store global shutdown request flag"""
     global shutdown_requested
     logger.info(f"Received signal {signum} to shut down")
     shutdown_requested = True
 
 
-# add annotations to image
-def draw_detections(
-    frame: np.ndarray,
-    boxes: list,
-    confs: list,
-    classes: list,
-    names: dict,
-):
-    for (x1, y1, x2, y2), conf, cls in zip(boxes, confs, classes):
-        label = f"{names[int(cls)]} {conf:.2f}"
-        (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
-        txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
-        txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
-        thickness = int(min(frame.shape[:2]) / 250)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), ANN_COLOUR, thickness)
-        cv2.rectangle(frame, (x1, y1), txt_box_coords, ANN_COLOUR, -1)
-        cv2.putText(frame, label, txt_coords, FONT, 1, (255, 255, 255))
-        logger.debug(
-            f"Annotated frame with object: class = {cls}, x1y1x2y2 = {x1},{y1},{x2},{y2}"
-        )
-
-
 # set constants
-ANN_COLOUR = (0, 200, 0)
-FONT = cv2.FONT_HERSHEY_SIMPLEX
 FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
 
 # prep terminal shutdown
@@ -131,7 +109,7 @@ while True:
     # annotate current frame and write to file then close recording
     if recording:
         if object_present:
-            draw_detections(frame, boxes, confs, classes, names=model.names)
+            utils.draw_detections(frame, boxes, confs, classes, names=model.names)
         writer.write(frame)
         last_detection_dur = (t0 - last_detection_time).total_seconds()
         if last_detection_dur > settings.BUFFER_DUR:
