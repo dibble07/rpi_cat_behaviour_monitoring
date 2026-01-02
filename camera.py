@@ -65,8 +65,16 @@ class Picamera2_camera:
         # set camera resolution and frame rate
         self.fps = settings.FPS
         config = self.cam.create_video_configuration(
-            main={"size": (settings.FRAME_WIDTH, settings.FRAME_HEIGHT)},
-            controls={"FrameRate": self.fps},
+            main={
+                "size": (settings.FRAME_WIDTH, settings.FRAME_HEIGHT),
+                "format": "RGB888",
+            },
+            controls={
+                "FrameRate": self.fps,
+                "AeEnable": True,
+                "ExposureTime": settings.EXPOSURETIME,
+                "AnalogueGain": 0,
+            },
         )
         self.cam.configure(config)
 
