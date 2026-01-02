@@ -1,2 +1,2 @@
-BUFFER_DUR = 2
+BUFFER_DUR = 5
 MODEL_PATH = "yolov8n_quantised.onnx"
