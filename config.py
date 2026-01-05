@@ -12,6 +12,10 @@ match SYSTEM:
         _SETTINGS_PATH_PLATFORM = os.path.join(
             os.path.dirname(__file__), "settings_mac.toml"
         )
+    case "Linux":
+        _SETTINGS_PATH_PLATFORM = os.path.join(
+            os.path.dirname(__file__), "settings_pi.toml"
+        )
     case _:
         raise ValueError(f"Unexpected system: {SYSTEM}")
 
