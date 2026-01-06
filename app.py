@@ -34,7 +34,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TO DO
-# - Avoid current frame adding to buffer and after detection
+# - Make frame class
+# - Make prebuffer class
 
 
 def _handle_exit(signum, _):
@@ -119,9 +120,6 @@ def processing_thread():
         except queue.Empty:
             continue
 
-        # store current frame image and timestamp to rolling buffer
-        pre_buffer.append((t0, frame.copy()))
-
         # identify objects in current frame
         results = model(
             frame, imgsz=settings.IMGSZ, verbose=False, max_det=settings.MAX_DETS
@@ -175,6 +173,11 @@ def processing_thread():
                     f"Saving clip: last detection was {last_detection_dur:.3f} ago"
                 )
                 recording = False
+
+        else:
+
+            # store current frame image and timestamp to rolling buffer
+            pre_buffer.append((t0, frame.copy()))
 
         # send frame to display queue
         if SYSTEM == "Darwin":
