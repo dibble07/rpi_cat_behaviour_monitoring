@@ -1,4 +1,3 @@
-import collections
 import logging
 import os
 import queue
@@ -31,9 +30,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-# TO DO
-# - Make prebuffer class
 
 
 def _handle_exit(signum, _):
@@ -94,7 +90,7 @@ def processing_thread():
     logger.info("Processing thread started")
 
     # initialise preroll buffer
-    pre_buffer = collections.deque(maxlen=int(settings.BUFFER_DUR * cam.fps))  # type: ignore
+    pre_buffer = utils.PreBuffer(max_duration=settings.BUFFER_DUR)
 
     # initialise state
     recording = False
@@ -122,8 +118,8 @@ def processing_thread():
                 )
                 logger.warning(f"Starting recording: {out_path}")
                 pre_buffer_len = len(pre_buffer)
-                for _, bf in pre_buffer:
-                    writer.write(bf)
+                for bf in pre_buffer:
+                    writer.write(bf.image_annotated)
                 logger.info(
                     f"Written {pre_buffer_len} frames from pre detection buffer"
                 )
@@ -146,7 +142,7 @@ def processing_thread():
         else:
 
             # store current frame image and timestamp to rolling buffer
-            pre_buffer.append(frame.image_annotated.copy())
+            pre_buffer.put(frame)
 
         # send frame to display queue
         if SYSTEM == "Darwin":

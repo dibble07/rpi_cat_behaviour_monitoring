@@ -1,6 +1,6 @@
 import logging
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Union
 
 import cv2
 import numpy as np
@@ -100,6 +100,35 @@ class Frame:
                 )
 
         return self._image_annotated
+
+
+class PreBuffer:
+    def __init__(self, max_duration: Union[int, float]):
+        self.max_duration = max_duration
+        self.frames: List[Frame] = []
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if not self.frames:
+            raise StopIteration
+        return self.frames.pop(0)
+
+    def __len__(self):
+        return len(self.frames)
+
+    def _sort(self):
+        self.frames.sort(key=lambda x: x.time)
+
+    def check_duration(self, time):
+        min_time = time - timedelta(seconds=settings.BUFFER_DUR)
+        self.frames = [x for x in self.frames if x.time >= min_time]
+        self._sort()
+
+    def put(self, frame: Frame):
+        self.frames.append(frame)
+        self.check_duration(frame.time)
 
 
 def get_best_device() -> torch.device:
