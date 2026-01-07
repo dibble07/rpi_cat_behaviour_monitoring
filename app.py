@@ -9,7 +9,6 @@ from datetime import datetime
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 import utils
 from camera import get_camera
@@ -34,7 +33,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # TO DO
-# - Make frame class
 # - Make prebuffer class
 
 
@@ -55,11 +53,8 @@ signal.signal(signal.SIGTERM, _handle_exit)
 # prepare output directory
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
-# prepare model
-model = YOLO(settings.MODEL_PATH, task="detect")
-
 # prepare threadsafe queues
-frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
+frame_queue: queue.Queue[utils.Frame] = queue.Queue()
 display_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
 # prepare camera
@@ -78,15 +73,12 @@ def capture_thread():
 
     while not shutdown_event.is_set():
 
-        # capture frame and timestamp
-        t0 = datetime.now()
-        frame = np.ascontiguousarray(cam())
-
         # enqueue the frame
-        frame_queue.put((t0, frame))
+        frame = utils.Frame(cam())
+        frame_queue.put(frame)
 
         # maintain camera frame rate
-        elapsed = (datetime.now() - t0).total_seconds()
+        elapsed = (datetime.now() - frame.time).total_seconds()
         delay = frame_period - elapsed
         if delay > 0:
             logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.3f} ms")
@@ -111,40 +103,22 @@ def processing_thread():
 
         # get frame from capture queue
         try:
-            t0, frame = frame_queue.get(timeout=0.1)
+            frame = frame_queue.get(timeout=0.1)
         except queue.Empty:
             continue
 
-        # identify objects in current frame
-        results = model(
-            frame, imgsz=settings.IMGSZ, verbose=False, max_det=settings.MAX_DETS
-        )[0]
-        boxes, confs, classes = [], [], []
-        for r in results.boxes:
-            boxes.append(r.xyxy[0].detach().cpu().int().tolist())
-            confs.append(float(r.conf[0].item()))
-            classes.append(int(r.cls[0].item()))
-        object_present = bool(boxes)
-        if object_present:
-            logger.info(
-                f"Object(s) detected: boxes = {boxes}, confs = {confs}, classes = {classes}"
-            )
-
-        if object_present:
+        if frame.object_detections:
 
             # update latest detection timestamp
-            last_detection_time = t0
-
-            # annotate current frame and write to video file
-            utils.draw_detections(frame, boxes, confs, classes, names=model.names)
+            last_detection_time = frame.time
 
             # initialise recording and write pre buffer to video file
             if not recording:
                 out_path = os.path.join(
-                    settings.OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4"
+                    settings.OUTPUT_DIR, f"{frame.time.strftime('%Y%m%d_%H%M%S')}.mp4"
                 )
                 writer = cv2.VideoWriter(
-                    out_path, FOURCC, cam.fps, frame.shape[:2][::-1]
+                    out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
                 )
                 logger.warning(f"Starting recording: {out_path}")
                 pre_buffer_len = len(pre_buffer)
@@ -158,8 +132,8 @@ def processing_thread():
         if recording:
 
             # write current frame and assess post buffer termination
-            writer.write(frame)
-            last_detection_dur = (t0 - last_detection_time).total_seconds()
+            writer.write(frame.image_annotated)
+            last_detection_dur = (frame.time - last_detection_time).total_seconds()
 
             # stop recording close video file
             if last_detection_dur > settings.BUFFER_DUR:
@@ -172,12 +146,12 @@ def processing_thread():
         else:
 
             # store current frame image and timestamp to rolling buffer
-            pre_buffer.append((t0, frame.copy()))
+            pre_buffer.append(frame.image_annotated.copy())
 
         # send frame to display queue
         if SYSTEM == "Darwin":
             try:
-                display_queue.put_nowait(frame.copy())
+                display_queue.put_nowait(frame.image_annotated.copy())
             except queue.Full:
                 pass
 
