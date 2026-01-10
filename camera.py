@@ -23,11 +23,18 @@ class Cv2_camera:
                 f"Camera FPS ({self.fps}) does not match target ({settings.TARGET_FPS})"
             )
 
-        logger.info(f"Camera object initialised: {self.cam}")
+        logger.info("Camera object initialised")
 
     def __call__(self):
         _, frame = self.cam.read()
-        logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
+
+        # restart video file if no frame available
+        if self._mock and frame is None:
+            logger.debug("Restarting video file")
+            self.cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            _, frame = self.cam.read()
+
+        logger.debug(f"Frame is of type {type(frame)}")
         return frame
 
 
@@ -56,7 +63,7 @@ class Picamera2_camera:
         # start camera object
         self.cam.start()
 
-        logger.info(f"Camera object initialised: {self.cam}")
+        logger.info("Camera object initialised")
 
     def __call__(self):
         frame = self.cam.capture_array()[..., :3]
