@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Union
 
 import cv2
@@ -10,8 +11,17 @@ logger = logging.getLogger(__name__)
 
 class Cv2_camera:
     def __init__(self):
+        # check for mocking
+        self._mock = os.environ.get("DEV_MOCK_CAMERA") == "1"
+
         # initialise camera object
-        self.cam = cv2.VideoCapture(0)
+        if self._mock:
+            video_path = os.path.join("sample_images", "20260110_175942.mp4")
+            logger.info("Using Cv2_camera with mock video")
+            self.cam = cv2.VideoCapture(video_path)
+        else:
+            logger.info("Using Cv2_camera with live video feed from source 0")
+            self.cam = cv2.VideoCapture(0)
 
         # get camera frame rate
         self.fps = self.cam.get(cv2.CAP_PROP_FPS)
@@ -34,6 +44,7 @@ class Cv2_camera:
         logger.info("Camera object initialised")
 
     def __call__(self):
+        # capture frame from camera
         _, frame = self.cam.read()
 
         # restart video file if no frame available
