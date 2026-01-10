@@ -4,6 +4,7 @@ import queue
 import signal
 import threading
 import time
+from copy import copy
 from datetime import datetime
 
 import cv2
@@ -65,11 +66,17 @@ def capture_thread():
     frame_period = 1 / cam.fps
     q_len_max = int(cam.fps * settings.BUFFER_DUR)
 
+    # initialise previous frame
+    prev_frame = None
+
     while not shutdown_event.is_set():
 
         # enqueue the frame
-        frame = utils.Frame(cam())
+        frame = utils.Frame(cam(), prev_frame)
         frame_queue.put(frame)
+
+        # store current frame as new previous frame
+        prev_frame = copy(frame)
 
         # log large queue
         q_len = frame_queue.qsize()
