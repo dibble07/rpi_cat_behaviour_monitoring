@@ -1,3 +1,4 @@
+import faulthandler
 import logging
 import os
 import queue
@@ -33,6 +34,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 process = psutil.Process(os.getpid())
+faulthandler.enable()
 
 
 def _handle_exit(signum, _):
