@@ -113,6 +113,9 @@ def processing_thread():
         except queue.Empty:
             continue
 
+        # start timing processing
+        start = datetime.now()
+
         if frame.object_detections:
 
             # update latest detection timestamp
@@ -160,6 +163,13 @@ def processing_thread():
                 display_queue.put_nowait(frame.image_annotated.copy())
             except queue.Full:
                 pass
+
+        # log processing rate
+        processing_fps = 1 / (datetime.now() - start).total_seconds()
+        if processing_fps > cam.fps:
+            logger.debug(f"Processing thread: {processing_fps:.1f} FPS")
+        else:
+            logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
 
     # cleanup
     if writer is not None:
