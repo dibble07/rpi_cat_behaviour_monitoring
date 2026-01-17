@@ -1,6 +1,27 @@
 # rpi_cat_behaviour_monitoring
 Raspberry Pi app to monitor cats with live video feed and identify poor behaviour
 
+## Disable wifi powersave mode
+1. Create a systemd service file: `/etc/systemd/system/disable-wifi-powersave.service`
+1. Add content to file:
+```
+[Unit]
+Description=Disable WiFi power saving
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/iw dev wlan0 set power_save off
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable disable-wifi-powersave.service`
+1. Optionally run script immediately to test: `sudo systemctl start disable-wifi-powersave.service`
+1. Check output `iw dev wlan0 get power_save`
+
 ## Startup script
 1. Create script file: `/home/robertdibble/rpi_cat_behaviour_monitoring.sh`
 1. Make it executable: `chmod +x /home/robertdibble/rpi_cat_behaviour_monitoring.sh`
