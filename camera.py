@@ -36,10 +36,10 @@ class Cv2_camera:
         # check resolution set correctly
         if width != settings.FRAME_WIDTH or height != settings.FRAME_HEIGHT:
             logger.warning(
-                f"Camera resolution ({width}x{height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
+                f"Camera resolution ({int(width)} x {int(height)}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
         else:
-            logger.info(f"Camera resolution: {width}x{height}")
+            logger.info(f"Camera resolution: {int(width)} x {int(height)}")
 
         logger.info("Camera object initialised")
 
