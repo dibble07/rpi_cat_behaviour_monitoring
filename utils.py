@@ -48,7 +48,10 @@ class Frame:
             self._motion_mask = np.zeros_like(self.image)
             self._has_motion = False
         else:
+            # start timing
+            start = datetime.now()
             logger.debug("Running motion detection")
+
             # calculate mask of changes from the previous frame
             diff = cv2.absdiff(self.prev_frame.image_grey_blur, self.image_grey_blur)
             _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
@@ -67,6 +70,10 @@ class Frame:
             # store motion mask and presence flag
             self._motion_mask = mask
             self._has_motion = mask.mean() / 255 > 0.01
+
+            # log detection duration
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.debug(f"Motion detection duration: {elapsed*1000:.1f} ms")
 
             # log motion
             if self._has_motion:
@@ -92,6 +99,8 @@ class Frame:
         if self.has_motion or (
             self.prev_frame is not None and self.prev_frame.object_detections
         ):
+            # start timing
+            start = datetime.now()
             logger.debug("Running object detection")
 
             # run model inference
@@ -112,6 +121,10 @@ class Frame:
                     }
                 )
 
+            # log detection duration
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.debug(f"Object detection duration: {elapsed*1000:.1f} ms")
+
             # log detections
             if self._object_detections:
                 logger.info(
@@ -129,6 +142,8 @@ class Frame:
     def image_annotated(self) -> np.ndarray:
         # annotate image if not already done
         if not hasattr(self, "_image_annotated"):
+            # start timing
+            start = datetime.now()
             logger.debug("Annotating image")
 
             # copy image ready to be annotated
@@ -161,6 +176,10 @@ class Frame:
                 cv2.putText(
                     self._image_annotated, label, txt_coords, FONT, 1, (255, 255, 255)
                 )
+
+            # log annotation duration
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.debug(f"Image annotation duration: {elapsed*1000:.1f} ms")
 
         return self._image_annotated
 

@@ -84,6 +84,7 @@ def capture_thread():
         # maintain camera frame rate
         elapsed = (datetime.now() - frame.time).total_seconds()
         delay = frame_period - elapsed
+        logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
         if delay > 0:
             logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.3f} ms")
             time.sleep(delay)
@@ -110,6 +111,10 @@ def processing_thread():
             frame = frame_queue.get(timeout=0.1)
         except queue.Empty:
             continue
+
+        # start timing
+        logger.debug("Running processing")
+        start = datetime.now()
 
         if frame.object_detections:
 
@@ -158,6 +163,13 @@ def processing_thread():
                 display_queue.put_nowait(frame.image_annotated.copy())
             except queue.Full:
                 pass
+
+        # log processing rate
+        elapsed = (datetime.now() - start).total_seconds()
+        processing_fps = 1 / elapsed
+        logger.debug(f"Processing duration: {elapsed*1000:.1f} ms")
+        if processing_fps < cam.fps:
+            logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
 
     # cleanup
     if writer is not None:
