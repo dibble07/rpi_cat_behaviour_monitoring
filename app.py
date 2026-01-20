@@ -4,6 +4,7 @@ import queue
 import signal
 import threading
 import time
+from copy import copy
 from datetime import datetime
 
 import cv2
@@ -70,8 +71,11 @@ def capture_thread():
     while not shutdown_event.is_set():
 
         # enqueue the frame
-        frame = utils.Frame(cam())
+        frame = utils.Frame(cam(), prev_frame)
         frame_queue.put(frame)
+
+        # store current frame as new previous frame
+        prev_frame = copy(frame)
 
         # maintain camera frame rate
         elapsed = (datetime.now() - frame.time).total_seconds()

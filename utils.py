@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
-from typing import List, Union
+from typing import List, Optional, Union
 
 import cv2
 import numpy as np
@@ -19,22 +21,78 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 
+# define background subtractor
+BACK_SUB = cv2.createBackgroundSubtractorMOG2(history=100, detectShadows=False)
+
 
 class Frame:
     """Store frame image and timestamp as well as supplementary processing and annotations"""
 
-    def __init__(self, image: np.ndarray) -> None:
+    def __init__(self, image: np.ndarray, prev_frame: Optional[Frame]) -> None:
         self.time = datetime.now()
         self.image = np.ascontiguousarray(image)
+        self.prev_frame = prev_frame
 
     @property
-    def object_detections(self) -> List[dict]:
-        # run object detection if not previously run
-        if not hasattr(self, "_object_detections"):
-            logger.info("Running object detection")
+    def image_grey_blur(self) -> np.ndarray:
+        if not hasattr(self, "_image_grey_blur"):
+            grey = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+            self._image_grey_blur = cv2.GaussianBlur(grey, (5, 5), 0)
+        return self._image_grey_blur
 
-            # initialise detectiosn output
-            self._object_detections = []
+    def _detect_motion(self):
+
+        if not self.prev_frame:
+            logger.warning(f"No previous frame available for motion detection")
+            # assume no motion if frame has no previous
+            self._motion_mask = np.zeros_like(self.image)
+            self._has_motion = False
+        else:
+            logger.debug("Running motion detection")
+            # calculate mask of changes from the previous frame
+            diff = cv2.absdiff(self.prev_frame.image_grey_blur, self.image_grey_blur)
+            _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+
+            # get mask of foreground from background removal model
+            fore_mask = BACK_SUB.apply(self.image)
+
+            # combine change and foreground masks
+            mask = cv2.bitwise_or(diff_mask, fore_mask)
+
+            # smooth regions
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+            mask = cv2.dilate(mask, kernel)
+
+            # store motion mask and presence flag
+            self._motion_mask = mask
+            self._has_motion = mask.mean() / 255 > 0.01
+
+            # log motion
+            if self._has_motion:
+                logger.info(f"Motion detected: {self._has_motion}")
+
+    @property
+    def motion_mask(self) -> np.ndarray:
+        if not hasattr(self, "_motion_mask"):
+            self._detect_motion()
+        return self._motion_mask
+
+    @property
+    def has_motion(self) -> bool:
+        if not hasattr(self, "_has_motion"):
+            self._detect_motion()
+        return self._has_motion
+
+    def _detect_objects(self):
+        # initialise detections output
+        self._object_detections = []
+
+        # only run detection if motion is present
+        if self.has_motion or (
+            self.prev_frame is not None and self.prev_frame.object_detections
+        ):
+            logger.debug("Running object detection")
 
             # run model inference
             results = MODEL(
@@ -60,6 +118,11 @@ class Frame:
                     f"Object(s) detected: {set([x["class"] for x in self._object_detections])}"
                 )
 
+    @property
+    def object_detections(self) -> List[dict]:
+        # run object detection if not previously run
+        if not hasattr(self, "_object_detections"):
+            self._detect_objects()
         return self._object_detections
 
     @property
