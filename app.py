@@ -1,3 +1,4 @@
+import faulthandler
 import logging
 import os
 import queue
@@ -9,6 +10,7 @@ from datetime import datetime
 
 import cv2
 import numpy as np
+import psutil
 
 import utils
 from camera import get_camera
@@ -31,6 +33,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+process = psutil.Process(os.getpid())
+faulthandler.enable()
 
 
 def _handle_exit(signum, _):
@@ -163,11 +167,38 @@ def processing_thread():
     logger.info("Processing thread stopped")
 
 
+def monitoring_thread():
+    # prepare percent sampling
+    psutil.cpu_percent(percpu=True)
+    process.cpu_percent()
+
+    while not shutdown_event.is_set():
+        # memory usage
+        rss = process.memory_info().rss / (1024 * 1024)
+        logger.info(f"Memory: {rss:.0f} MB")
+
+        # CPU usage
+        proc_cpu = process.cpu_percent(interval=None)
+        logger.info(f"ProcCPU: {proc_cpu:.1f}%")
+
+        # thread counts
+        num_threads = process.num_threads()
+        logger.info(f"Threads:{num_threads}")
+
+        # queue size
+        q_len = frame_queue.qsize()
+        logger.info(f"Frame queue length: {q_len}")
+
+        time.sleep(0.5)
+
+
 # start threads
 capture_t = threading.Thread(target=capture_thread)
 processing_t = threading.Thread(target=processing_thread)
+monitoring_t = threading.Thread(target=monitoring_thread)
 capture_t.start()
 processing_t.start()
+monitoring_t.start()
 
 # display frames and check for shutdown requests
 try:
@@ -189,5 +220,6 @@ except KeyboardInterrupt:
 logger.info("Waiting for threads to finish...")
 capture_t.join(timeout=5)
 processing_t.join(timeout=5)
+monitoring_t.join(timeout=5)
 cv2.destroyAllWindows()
 logger.info("Application shutdown complete")
