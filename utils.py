@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
@@ -31,6 +32,7 @@ class Frame:
     def __init__(self, image: np.ndarray, prev_frame: Optional[Frame]) -> None:
         self.time = datetime.now()
         self.image = np.ascontiguousarray(image)
+        self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
         self.prev_frame = prev_frame
 
     @property
@@ -43,14 +45,16 @@ class Frame:
     def _detect_motion(self):
 
         if not self.prev_frame:
-            logger.warning(f"No previous frame available for motion detection")
+            logger.warning(
+                f"({self.hash}) No previous frame available for motion detection"
+            )
             # assume no motion if frame has no previous
             self._motion_mask = np.zeros_like(self.image)
             self._has_motion = False
         else:
             # start timing
             start = datetime.now()
-            logger.debug("Running motion detection")
+            logger.debug(f"({self.hash}) Running motion detection")
 
             # calculate mask of changes from the previous frame
             diff = cv2.absdiff(self.prev_frame.image_grey_blur, self.image_grey_blur)
@@ -73,11 +77,13 @@ class Frame:
 
             # log detection duration
             elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(f"Motion detection duration: {elapsed*1000:.1f} ms")
+            logger.debug(
+                f"({self.hash}) Motion detection duration: {elapsed*1000:.1f} ms"
+            )
 
             # log motion
             if self._has_motion:
-                logger.info(f"Motion detected: {self._has_motion}")
+                logger.info(f"({self.hash}) Motion detected: {self._has_motion}")
 
     @property
     def motion_mask(self) -> np.ndarray:
@@ -101,7 +107,7 @@ class Frame:
         ):
             # start timing
             start = datetime.now()
-            logger.debug("Running object detection")
+            logger.debug(f"({self.hash}) Running object detection")
 
             # run model inference
             results = MODEL(
@@ -123,12 +129,14 @@ class Frame:
 
             # log detection duration
             elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(f"Object detection duration: {elapsed*1000:.1f} ms")
+            logger.debug(
+                f"({self.hash}) Object detection duration: {elapsed*1000:.1f} ms"
+            )
 
             # log detections
             if self._object_detections:
                 logger.info(
-                    f"Object(s) detected: {set([x["class"] for x in self._object_detections])}"
+                    f"({self.hash}) Object(s) detected: {set([x["class"] for x in self._object_detections])}"
                 )
 
     @property
@@ -144,7 +152,7 @@ class Frame:
         if not hasattr(self, "_image_annotated"):
             # start timing
             start = datetime.now()
-            logger.debug("Annotating image")
+            logger.debug(f"({self.hash}) Annotating image")
 
             # copy image ready to be annotated
             self._image_annotated = self.image.copy()
@@ -179,7 +187,9 @@ class Frame:
 
             # log annotation duration
             elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(f"Image annotation duration: {elapsed*1000:.1f} ms")
+            logger.debug(
+                f"({self.hash}) Image annotation duration: {elapsed*1000:.1f} ms"
+            )
 
         return self._image_annotated
 

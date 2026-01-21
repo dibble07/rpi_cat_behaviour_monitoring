@@ -113,7 +113,7 @@ def processing_thread():
             continue
 
         # start timing
-        logger.debug("Running processing")
+        logger.debug(f"({frame.hash}) Running processing")
         start = datetime.now()
 
         if frame.object_detections:
@@ -167,7 +167,7 @@ def processing_thread():
         # log processing rate
         elapsed = (datetime.now() - start).total_seconds()
         processing_fps = 1 / elapsed
-        logger.debug(f"Processing duration: {elapsed*1000:.1f} ms")
+        logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
         if processing_fps < cam.fps:
             logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
 
