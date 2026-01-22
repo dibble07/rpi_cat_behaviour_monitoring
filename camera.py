@@ -23,8 +23,8 @@ class Cv2_camera:
             logger.info("Using Cv2_camera with live video feed from source 0")
             self.cam = cv2.VideoCapture(0)
 
-        # get camera frame rate
-        self.fps = self.cam.get(cv2.CAP_PROP_FPS)
+        # set camera frame rate - controlled by capture thread as hardware is fixed
+        self.fps = min(settings.FPS, self.cam.get(cv2.CAP_PROP_FPS))
         logger.info(f"Camera FPS: {self.fps}")
 
         # set camera resolution
