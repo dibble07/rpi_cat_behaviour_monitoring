@@ -23,7 +23,9 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 
 # define background subtractor
-BACK_SUB = cv2.createBackgroundSubtractorMOG2(history=100, detectShadows=False)
+BACK_SUB = cv2.createBackgroundSubtractorMOG2(
+    history=settings.BACKGROUND_HISTORY, detectShadows=False
+)
 
 
 class Frame:

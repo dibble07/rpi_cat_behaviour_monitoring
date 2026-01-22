@@ -1,2 +1,3 @@
+BACKGROUND_HISTORY = 10
 BUFFER_DUR = 5
 MODEL_PATH = "yolov8n_quantised.onnx"
