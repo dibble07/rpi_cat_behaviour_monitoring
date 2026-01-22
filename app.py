@@ -5,7 +5,6 @@ import queue
 import signal
 import threading
 import time
-from copy import copy
 from datetime import datetime
 
 import cv2
@@ -55,7 +54,7 @@ signal.signal(signal.SIGTERM, _handle_exit)
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
 # prepare threadsafe queues
-frame_queue: queue.Queue[utils.Frame] = queue.Queue()
+frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
 display_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
 # prepare camera
@@ -69,20 +68,15 @@ def capture_thread():
     # set capture constants
     frame_period = 1 / cam.fps
 
-    # initialise previous frame
-    prev_frame = None
-
     while not shutdown_event.is_set():
 
         # enqueue the frame
-        frame = utils.Frame(cam(), prev_frame)
-        frame_queue.put(frame)
-
-        # store current frame as new previous frame
-        prev_frame = copy(frame)
+        timestamp = datetime.now()
+        image = cam()
+        frame_queue.put((timestamp, image))
 
         # maintain camera frame rate
-        elapsed = (datetime.now() - frame.time).total_seconds()
+        elapsed = (datetime.now() - timestamp).total_seconds()
         delay = frame_period - elapsed
         logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
         if delay > 0:
@@ -101,14 +95,24 @@ def processing_thread():
     # initialise preroll buffer
     pre_buffer = utils.PreBuffer(max_duration=settings.BUFFER_DUR)
 
-    # initialise state
+    # initialise state and previous frame
     recording = False
+    prev_image_grey_blur = np.zeros(
+        (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+    )
+    prev_object_detections = []  # type: ignore
 
     while not shutdown_event.is_set() or not frame_queue.empty():
 
         # get frame from capture queue
         try:
-            frame = frame_queue.get(timeout=0.1)
+            timestamp, image = frame_queue.get(timeout=0.1)
+            frame = utils.Frame(
+                timestamp=timestamp,
+                image=image,
+                prev_image_grey_blur=prev_image_grey_blur,
+                prev_object_detections=prev_object_detections,
+            )
         except queue.Empty:
             continue
 
@@ -119,12 +123,13 @@ def processing_thread():
         if frame.object_detections:
 
             # update latest detection timestamp
-            last_detection_time = frame.time
+            last_detection_time = frame.timestamp
 
             # initialise recording and write pre buffer to video file
             if not recording:
                 out_path = os.path.join(
-                    settings.OUTPUT_DIR, f"{frame.time.strftime('%Y%m%d_%H%M%S')}.mp4"
+                    settings.OUTPUT_DIR,
+                    f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
                 )
                 writer = cv2.VideoWriter(
                     out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
@@ -142,7 +147,7 @@ def processing_thread():
 
             # write current frame and assess post buffer termination
             writer.write(frame.image_annotated)
-            last_detection_dur = (frame.time - last_detection_time).total_seconds()
+            last_detection_dur = (frame.timestamp - last_detection_time).total_seconds()
 
             # stop recording close video file
             if last_detection_dur > settings.BUFFER_DUR:
@@ -163,6 +168,10 @@ def processing_thread():
                 display_queue.put_nowait(frame.image_annotated.copy())
             except queue.Full:
                 pass
+
+        # update current frame to be previous frame
+        prev_image_grey_blur = frame.prev_image_grey_blur.copy()
+        prev_object_detections = frame.prev_object_detections.copy()
 
         # log processing rate
         elapsed = (datetime.now() - start).total_seconds()
