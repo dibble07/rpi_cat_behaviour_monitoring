@@ -1,13 +1,15 @@
-import collections
+import faulthandler
 import logging
 import os
+import queue
 import signal
+import threading
 import time
 from datetime import datetime
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
+import psutil
 
 import utils
 from camera import get_camera
@@ -15,7 +17,7 @@ from config import SYSTEM, settings
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
@@ -30,106 +32,215 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-# TO DO
-# - Handle misaligned frame and processing timings
-# - Avoid current frame adding to buffer and after detection
+process = psutil.Process(os.getpid())
+faulthandler.enable()
 
 
 def _handle_exit(signum, _):
     """Store global shutdown request flag"""
-    global shutdown_requested
     logger.info(f"Received signal {signum} to shut down")
-    shutdown_requested = True
+    shutdown_event.set()
 
 
 # set constants
 FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
 
 # prep terminal shutdown
-shutdown_requested = False
+shutdown_event = threading.Event()
 signal.signal(signal.SIGINT, _handle_exit)
 signal.signal(signal.SIGTERM, _handle_exit)
-
 
 # prepare output directory
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
-# prepare model
-model = YOLO(settings.MODEL_PATH, task="detect")
+# prepare threadsafe queues
+frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
+display_queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=1)
 
-# prepare camera and buffer
+# prepare camera
 cam = get_camera()
-frame_int = 1 / cam.fps
-pre_buffer = collections.deque(maxlen=int(settings.BUFFER_DUR * cam.fps))  # type: ignore
 
-# initialise state
-recording = False
-last_detection_time = datetime.now()
-writer = None
 
-# loop indefinitely
-while True:
+def capture_thread():
+    """Continuously capture camera frames and add to queue"""
+    logger.info("Capture thread started")
 
-    # store current frame image and timestamp to rolling buffer
-    t0 = datetime.now()
-    frame = np.ascontiguousarray(cam())
-    pre_buffer.append((t0, frame.copy()))
+    # set capture constants
+    frame_period = 1 / cam.fps
 
-    # identify objects in current frame
-    results = model(
-        frame, imgsz=settings.IMGSZ, verbose=False, max_det=settings.MAX_DETS
-    )[0]
-    boxes, confs, classes = [], [], []
-    for r in results.boxes:
-        boxes.append(r.xyxy[0].detach().cpu().int().tolist())
-        confs.append(float(r.conf[0].item()))
-        classes.append(int(r.cls[0].item()))
-    object_present = bool(boxes)
-    if object_present:
-        logger.info(
-            f"Object(s) detected: boxes = {boxes}, confs = {confs}, classes = {classes}"
-        )
+    while not shutdown_event.is_set():
 
-    # start video writing and write buffer to file
-    if object_present:
-        last_detection_time = t0
-        if not recording:
-            out_path = os.path.join(
-                settings.OUTPUT_DIR, f"{t0.strftime('%Y%m%d_%H%M%S')}.mp4"
+        # enqueue the frame
+        timestamp = datetime.now()
+        image = cam()
+        frame_queue.put((timestamp, image))
+
+        # maintain camera frame rate
+        elapsed = (datetime.now() - timestamp).total_seconds()
+        delay = frame_period - elapsed
+        logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
+        if delay > 0:
+            logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.3f} ms")
+            time.sleep(delay)
+        else:
+            logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
+
+    logger.info("Capture thread stopped")
+
+
+def processing_thread():
+    """Process frames to detect objects and record videos"""
+    logger.info("Processing thread started")
+
+    # initialise preroll buffer
+    pre_buffer = utils.PreBuffer(max_duration=settings.BUFFER_DUR)
+
+    # initialise state and previous frame
+    recording = False
+    prev_image_grey_blur = np.zeros(
+        (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+    )
+    prev_object_detections = []  # type: ignore
+
+    while not shutdown_event.is_set() or not frame_queue.empty():
+
+        # get frame from capture queue
+        try:
+            timestamp, image = frame_queue.get(timeout=0.1)
+            frame = utils.Frame(
+                timestamp=timestamp,
+                image=image,
+                prev_image_grey_blur=prev_image_grey_blur,
+                prev_object_detections=prev_object_detections,
             )
-            writer = cv2.VideoWriter(out_path, FOURCC, cam.fps, frame.shape[:2][::-1])
-            logger.warning(f"Starting recording: {out_path}")
-            pre_buffer_len = len(pre_buffer)
-            for _, bf in pre_buffer:
-                writer.write(bf)
-            logger.info(f"Written {pre_buffer_len} frames from pre detection buffer")
-            recording = True
+        except queue.Empty:
+            continue
 
-    # annotate current frame and write to file then close recording
-    if recording:
-        if object_present:
-            utils.draw_detections(frame, boxes, confs, classes, names=model.names)
-        writer.write(frame)
-        last_detection_dur = (t0 - last_detection_time).total_seconds()
-        if last_detection_dur > settings.BUFFER_DUR:
-            writer.release()
-            logger.info(f"Saving clip: last detection was {last_detection_dur:.3f} ago")
-            recording = False
+        # start timing
+        logger.debug(f"({frame.hash}) Running processing")
+        start = datetime.now()
 
-    # manual closing of app and recording
-    if SYSTEM == "Darwin":
-        cv2.imshow("Object monitor (q to quit)", frame)
-    if cv2.waitKey(1) & 0xFF == ord("q") or shutdown_requested:
-        if writer is not None:
-            writer.release()
-        logger.info("Saving clip: manually closed")
-        break
+        if frame.object_detections:
 
-    # delay next processing to match camera frame rate
-    elapsed = (datetime.now() - t0).total_seconds()
-    delay = frame_int - elapsed
-    logger.info(f"Processing rate is {(1/elapsed):.1f} FPS")
-    if delay > 0:
-        logger.info(f"Delay next processing by {delay:.3f} seconds")
-        time.sleep(delay)
+            # update latest detection timestamp
+            last_detection_time = frame.timestamp
+
+            # initialise recording and write pre buffer to video file
+            if not recording:
+                out_path = os.path.join(
+                    settings.OUTPUT_DIR,
+                    f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
+                )
+                writer = cv2.VideoWriter(
+                    out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
+                )
+                logger.warning(f"Starting recording: {out_path}")
+                pre_buffer_len = len(pre_buffer)
+                for bf in pre_buffer:
+                    writer.write(bf.image_annotated)
+                logger.info(
+                    f"Written {pre_buffer_len} frames from pre detection buffer"
+                )
+                recording = True
+
+        if recording:
+
+            # write current frame and assess post buffer termination
+            writer.write(frame.image_annotated)
+            last_detection_dur = (frame.timestamp - last_detection_time).total_seconds()
+
+            # stop recording close video file
+            if last_detection_dur > settings.BUFFER_DUR:
+                writer.release()
+                logger.info(
+                    f"Saving clip: last detection was {last_detection_dur:.3f} ago"
+                )
+                recording = False
+
+        else:
+
+            # store current frame image and timestamp to rolling buffer
+            pre_buffer.put(frame)
+
+        # send frame to display queue
+        if SYSTEM == "Darwin":
+            try:
+                display_queue.put_nowait(frame.image_annotated.copy())
+            except queue.Full:
+                pass
+
+        # update current frame to be previous frame
+        prev_image_grey_blur = frame.prev_image_grey_blur.copy()
+        prev_object_detections = frame.prev_object_detections.copy()
+
+        # log processing rate
+        elapsed = (datetime.now() - start).total_seconds()
+        processing_fps = 1 / elapsed
+        logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
+        if processing_fps < cam.fps:
+            logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
+
+    # cleanup
+    if writer is not None:
+        writer.release()
+        logger.info("Saving clip")
+
+    logger.info("Processing thread stopped")
+
+
+def monitoring_thread():
+    # prepare percent sampling
+    psutil.cpu_percent(percpu=True)
+    process.cpu_percent()
+
+    while not shutdown_event.is_set():
+        # memory usage
+        rss = process.memory_info().rss / (1024 * 1024)
+        logger.info(f"Memory: {rss:.0f} MB")
+
+        # CPU usage
+        proc_cpu = process.cpu_percent(interval=None)
+        logger.info(f"ProcCPU: {proc_cpu:.1f}%")
+
+        # thread counts
+        num_threads = process.num_threads()
+        logger.info(f"Threads:{num_threads}")
+
+        # queue size
+        q_len = frame_queue.qsize()
+        logger.info(f"Frame queue length: {q_len}")
+
+        time.sleep(0.5)
+
+
+# start threads
+capture_t = threading.Thread(target=capture_thread)
+processing_t = threading.Thread(target=processing_thread)
+monitoring_t = threading.Thread(target=monitoring_thread)
+capture_t.start()
+processing_t.start()
+monitoring_t.start()
+
+# display frames and check for shutdown requests
+try:
+    while not shutdown_event.is_set():
+        if SYSTEM == "Darwin":
+            try:
+                display_frame = display_queue.get(timeout=0.1)
+                cv2.imshow("Object monitor (q to quit)", display_frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    shutdown_event.set()
+            except queue.Empty:
+                cv2.waitKey(1)
+        else:
+            time.sleep(0.1)
+except KeyboardInterrupt:
+    shutdown_event.set()
+
+# close down application
+logger.info("Waiting for threads to finish...")
+capture_t.join(timeout=5)
+processing_t.join(timeout=5)
+monitoring_t.join(timeout=5)
+cv2.destroyAllWindows()
+logger.info("Application shutdown complete")

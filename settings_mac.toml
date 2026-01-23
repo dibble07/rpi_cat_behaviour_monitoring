@@ -1,4 +1,5 @@
 OUTPUT_DIR = "object_clips"
+FPS = 10
 MAX_DETS = 5
 IMGSZ = 960
 FRAME_WIDTH = 1920

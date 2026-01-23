@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Union
 
 import cv2
@@ -10,11 +11,20 @@ logger = logging.getLogger(__name__)
 
 class Cv2_camera:
     def __init__(self):
-        # initialise camera obejct
-        self.cam = cv2.VideoCapture(0)
+        # check for mocking
+        self._mock = os.environ.get("DEV_MOCK_CAMERA") == "1"
 
-        # get camera frame rate
-        self.fps = self.cam.get(cv2.CAP_PROP_FPS)
+        # initialise camera object
+        if self._mock:
+            video_path = os.path.join("sample_images", "20260110_175942.mp4")
+            logger.info("Using Cv2_camera with mock video")
+            self.cam = cv2.VideoCapture(video_path)
+        else:
+            logger.info("Using Cv2_camera with live video feed from source 0")
+            self.cam = cv2.VideoCapture(0)
+
+        # set camera frame rate - controlled by capture thread as hardware is fixed
+        self.fps = min(settings.FPS, self.cam.get(cv2.CAP_PROP_FPS))
         logger.info(f"Camera FPS: {self.fps}")
 
         # set camera resolution
@@ -26,16 +36,24 @@ class Cv2_camera:
         # check resolution set correctly
         if width != settings.FRAME_WIDTH or height != settings.FRAME_HEIGHT:
             logger.warning(
-                f"Camera resolution ({width}x{height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
+                f"Camera resolution ({int(width)} x {int(height)}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
         else:
-            logger.info(f"Camera resolution: {width}x{height}")
+            logger.info(f"Camera resolution: {int(width)} x {int(height)}")
 
-        logger.info(f"Camera object initialised: {self.cam}")
+        logger.info("Camera object initialised")
 
     def __call__(self):
+        # capture frame from camera
         _, frame = self.cam.read()
-        logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
+
+        # restart video file if no frame available
+        if self._mock and frame is None:
+            logger.debug("Restarting video file")
+            self.cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            _, frame = self.cam.read()
+
+        logger.debug(f"Frame is of type {type(frame)}")
         return frame
 
 
@@ -66,7 +84,7 @@ class Picamera2_camera:
         # start camera
         self.cam.start()
 
-        logger.info(f"Camera object initialised: {self.cam}")
+        logger.info("Camera object initialised")
 
     def __call__(self):
         frame = self.cam.capture_array()[..., :3]
