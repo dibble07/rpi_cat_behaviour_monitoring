@@ -97,6 +97,7 @@ def processing_thread():
 
     # initialise state and previous frame
     recording = False
+    writer = None
     prev_image_grey_blur = np.zeros(
         (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
     )
@@ -120,7 +121,7 @@ def processing_thread():
         logger.debug(f"({frame.hash}) Running processing")
         start = datetime.now()
 
-        if frame.object_detections:
+        if frame.object_detections and not frame.has_excluded_class:
 
             # update latest detection timestamp
             last_detection_time = frame.timestamp
@@ -146,21 +147,28 @@ def processing_thread():
         if recording:
 
             # write current frame and assess post buffer termination
-            writer.write(frame.image_annotated)
-            last_detection_dur = (frame.timestamp - last_detection_time).total_seconds()
+            if not frame.has_excluded_class:
+                writer.write(frame.image_annotated)
+                last_detection_dur = (
+                    frame.timestamp - last_detection_time
+                ).total_seconds()
 
             # stop recording close video file
-            if last_detection_dur > settings.BUFFER_DUR:
+            if (last_detection_dur > settings.BUFFER_DUR) or frame.has_excluded_class:
                 writer.release()
-                logger.info(
-                    f"Saving clip: last detection was {last_detection_dur:.3f} ago"
-                )
+                if last_detection_dur > settings.BUFFER_DUR:
+                    logger.info(
+                        f"Saving clip: last detection was {last_detection_dur:.3f} ago"
+                    )
+                elif frame.has_excluded_class:
+                    logger.info(f"Saving clip: excluded class detected")
                 recording = False
 
         else:
 
             # store current frame image and timestamp to rolling buffer
-            pre_buffer.put(frame)
+            if not frame.has_excluded_class:
+                pre_buffer.put(frame)
 
         # send frame to display queue
         if SYSTEM == "Darwin":
