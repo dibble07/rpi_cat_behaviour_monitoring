@@ -130,6 +130,13 @@ class Frame:
                 f"({self.hash}) Object detection duration: {elapsed*1000:.1f} ms"
             )
 
+            # identify excluded classes
+            self._has_excluded_class = bool(
+                {x["class"] for x in self._object_detections}.intersection(
+                    settings.EXCLUDED_CLASSES
+                )
+            )
+
             # log detections
             if self._object_detections:
                 logger.info(
@@ -142,6 +149,13 @@ class Frame:
         if not hasattr(self, "_object_detections"):
             self._detect_objects()
         return self._object_detections
+
+    @property
+    def has_excluded_class(self) -> bool:
+        # run object detection if not previously run
+        if not hasattr(self, "_has_excluded_class"):
+            self._detect_objects()
+        return self._has_excluded_class
 
     @property
     def image_annotated(self) -> np.ndarray:

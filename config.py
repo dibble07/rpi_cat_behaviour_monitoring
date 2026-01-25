@@ -22,3 +22,6 @@ match SYSTEM:
 # load settings
 _SETTINGS_PATH_GENEREAL = os.path.join(os.path.dirname(__file__), "settings.toml")
 settings = Dynaconf(settings_files=[_SETTINGS_PATH_GENEREAL, _SETTINGS_PATH_PLATFORM])
+settings.EXCLUDED_CLASSES = {
+    int(x.strip()) for x in settings.EXCLUDED_CLASSES.split(",")
+}
