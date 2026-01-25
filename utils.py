@@ -143,6 +143,9 @@ class Frame:
                     f"({self.hash}) Object(s) detected: {set([x["class"] for x in self._object_detections])}"
                 )
 
+        else:
+            self._has_excluded_class = False
+
     @property
     def object_detections(self) -> List[dict]:
         # run object detection if not previously run

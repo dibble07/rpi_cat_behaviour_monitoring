@@ -97,6 +97,7 @@ def processing_thread():
 
     # initialise state and previous frame
     recording = False
+    writer = None
     prev_image_grey_blur = np.zeros(
         (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
     )
@@ -122,45 +123,60 @@ def processing_thread():
 
         if frame.object_detections:
 
-            # update latest detection timestamp
-            last_detection_time = frame.timestamp
+            if frame.has_excluded_class:
 
-            # initialise recording and write pre buffer to video file
-            if not recording:
-                out_path = os.path.join(
-                    settings.OUTPUT_DIR,
-                    f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
-                )
-                writer = cv2.VideoWriter(
-                    out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
-                )
-                logger.warning(f"Starting recording: {out_path}")
-                pre_buffer_len = len(pre_buffer)
-                for bf in pre_buffer:
-                    writer.write(bf.image_annotated)
-                logger.info(
-                    f"Written {pre_buffer_len} frames from pre detection buffer"
-                )
-                recording = True
+                # clear buffer
+                pre_buffer.frames.clear()
+                logger.info("Clearing buffer due to detection of excluded class")
+
+            else:
+
+                # update latest detection timestamp
+                last_detection_time = frame.timestamp
+
+                # initialise recording and write pre buffer to video file
+                if not recording:
+                    out_path = os.path.join(
+                        settings.OUTPUT_DIR,
+                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
+                    )
+                    writer = cv2.VideoWriter(
+                        out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
+                    )
+                    logger.warning(f"Starting recording: {out_path}")
+                    pre_buffer_len = len(pre_buffer)
+                    for bf in pre_buffer:
+                        writer.write(bf.image_annotated)
+                    logger.info(
+                        f"Written {pre_buffer_len} frames from pre detection buffer"
+                    )
+                    recording = True
 
         if recording:
 
             # write current frame and assess post buffer termination
-            writer.write(frame.image_annotated)
-            last_detection_dur = (frame.timestamp - last_detection_time).total_seconds()
+            if not frame.has_excluded_class:
+                writer.write(frame.image_annotated)
+                last_detection_dur = (
+                    frame.timestamp - last_detection_time
+                ).total_seconds()
 
             # stop recording close video file
-            if last_detection_dur > settings.BUFFER_DUR:
+            if (last_detection_dur > settings.BUFFER_DUR) or frame.has_excluded_class:
                 writer.release()
-                logger.info(
-                    f"Saving clip: last detection was {last_detection_dur:.3f} ago"
-                )
+                if last_detection_dur > settings.BUFFER_DUR:
+                    logger.info(
+                        f"Saving clip: last detection was {last_detection_dur:.3f} ago"
+                    )
+                elif frame.has_excluded_class:
+                    logger.info(f"Saving clip: excluded class detected")
                 recording = False
 
         else:
 
             # store current frame image and timestamp to rolling buffer
-            pre_buffer.put(frame)
+            if not frame.has_excluded_class:
+                pre_buffer.put(frame)
 
         # send frame to display queue
         if SYSTEM == "Darwin":
