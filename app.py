@@ -70,9 +70,17 @@ def capture_thread():
 
     while not shutdown_event.is_set():
 
-        # enqueue the frame
+        # get image and timestamp
         timestamp = datetime.now()
         image = cam()
+
+        # shutdown if mock camera reached end of file
+        if cam._mock and image is None:
+            logger.warning("Mock camera reached end of file")
+            shutdown_event.set()
+            continue
+
+        # enqueue the frame
         frame_queue.put((timestamp, image))
 
         # maintain camera frame rate
