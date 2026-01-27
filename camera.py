@@ -16,7 +16,7 @@ class Cv2_camera:
 
         # initialise camera object
         if self._mock:
-            video_path = os.path.join("sample_images", "20260110_175942.mp4")
+            video_path = os.path.join("sample_images", "20260127_072635.mp4")
             logger.info("Using Cv2_camera with mock video")
             self.cam = cv2.VideoCapture(video_path)
         else:
