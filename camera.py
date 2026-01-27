@@ -47,12 +47,6 @@ class Cv2_camera:
         # capture frame from camera
         _, frame = self.cam.read()
 
-        # restart video file if no frame available
-        if self._mock and frame is None:
-            logger.debug("Restarting video file")
-            self.cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            _, frame = self.cam.read()
-
         logger.debug(f"Frame is of type {type(frame)}")
         return frame
 
@@ -66,6 +60,7 @@ class Picamera2_camera:
         self.cam = Picamera2()
 
         # configure camera
+        self._mock = False
         self.fps = settings.FPS
         config = self.cam.create_video_configuration(
             main={
