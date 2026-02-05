@@ -16,7 +16,7 @@ class Cv2_camera:
 
         # initialise camera object
         if self._mock:
-            video_path = os.path.join("sample_images", "20260110_175942.mp4")
+            video_path = os.path.join("sample_images", "20260127_072635.mp4")
             logger.info("Using Cv2_camera with mock video")
             self.cam = cv2.VideoCapture(video_path)
         else:
@@ -30,28 +30,22 @@ class Cv2_camera:
         # set camera resolution
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
         self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
-        width = self.cam.get(cv2.CAP_PROP_FRAME_WIDTH)
-        height = self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         # check resolution set correctly
         if width != settings.FRAME_WIDTH or height != settings.FRAME_HEIGHT:
             logger.warning(
-                f"Camera resolution ({int(width)} x {int(height)}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
+                f"Camera resolution ({width} x {height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
         else:
-            logger.info(f"Camera resolution: {int(width)} x {int(height)}")
+            logger.info(f"Camera resolution: {width} x {height}")
 
         logger.info("Camera object initialised")
 
     def __call__(self):
         # capture frame from camera
         _, frame = self.cam.read()
-
-        # restart video file if no frame available
-        if self._mock and frame is None:
-            logger.debug("Restarting video file")
-            self.cam.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            _, frame = self.cam.read()
 
         logger.debug(f"Frame is of type {type(frame)}")
         return frame
@@ -66,6 +60,7 @@ class Picamera2_camera:
         self.cam = Picamera2()
 
         # configure camera
+        self._mock = False
         self.fps = settings.FPS
         config = self.cam.create_video_configuration(
             main={
