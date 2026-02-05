@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
 import queue
 from datetime import datetime, timedelta
-from typing import List, Union
+from typing import List, Optional, Union
 
 import cv2
 import numpy as np
@@ -37,14 +39,21 @@ class Frame:
         self,
         timestamp: datetime,
         image: np.ndarray,
-        prev_image_grey_blur: np.ndarray,
-        prev_object_detections: List,
+        prev_frame: Optional[Frame],
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
-        self.prev_image_grey_blur = prev_image_grey_blur
-        self.prev_object_detections = prev_object_detections
+
+        if prev_frame is None:
+            logger.warning(f"No previous frame provided")
+            self.prev_image_grey_blur = np.zeros(
+                (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+            )
+            self.prev_object_detections = []  # type: ignore
+        else:
+            self.prev_image_grey_blur = prev_frame.image_grey_blur.copy()
+            self.prev_object_detections = prev_frame.object_detections.copy()
 
     @property
     def image_grey_blur(self) -> np.ndarray:
@@ -249,22 +258,14 @@ def processing_thread():
     # initialise state and previous frame
     recording = False
     writer = None
-    prev_image_grey_blur = np.zeros(
-        (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
-    )
-    prev_object_detections = []  # type: ignore
+    prev_frame = None
 
     while not shutdown_event.is_set() or not frame_queue.empty():
 
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
-            frame = Frame(
-                timestamp=timestamp,
-                image=image,
-                prev_image_grey_blur=prev_image_grey_blur,
-                prev_object_detections=prev_object_detections,
-            )
+            frame = Frame(timestamp=timestamp, image=image, prev_frame=prev_frame)
         except queue.Empty:
             continue
 
@@ -337,8 +338,7 @@ def processing_thread():
                 pass
 
         # update current frame to be previous frame
-        prev_image_grey_blur = frame.prev_image_grey_blur.copy()
-        prev_object_detections = frame.prev_object_detections.copy()
+        prev_frame = frame
 
         # log processing rate
         elapsed = (datetime.now() - start).total_seconds()
