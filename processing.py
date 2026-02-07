@@ -76,12 +76,20 @@ class Frame:
         fore_mask = BACK_SUB.apply(self.image)
 
         # combine change and foreground masks
-        mask = cv2.bitwise_or(diff_mask, fore_mask)
+        motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
 
         # smooth regions
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.dilate(mask, kernel)
+        motion_mask = cv2.morphologyEx(motion_mask, cv2.MORPH_OPEN, kernel)
+        motion_mask = cv2.dilate(motion_mask, kernel)
+
+        # get mask of previous detections
+        prev_mask = np.zeros_like(self.image_grey_blur)
+        for o in self.prev_object_detections:
+            prev_mask[o["box"][1] : o["box"][3], o["box"][0] : o["box"][2]] = 255
+
+        # combine motion and previous detection masks
+        mask = cv2.bitwise_or(motion_mask, prev_mask)
 
         # store motion mask and presence flag
         self._motion_mask = mask
