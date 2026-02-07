@@ -93,7 +93,7 @@ class Frame:
 
         # store motion mask and presence flag
         self._motion_mask = mask
-        self._has_motion = mask.mean() / 255 > 0.01
+        self._has_motion = mask.mean() / 255 > 0.001
 
         # log detection duration
         elapsed = (datetime.now() - start).total_seconds()
