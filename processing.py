@@ -78,10 +78,14 @@ class Frame:
         # combine change and foreground masks
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
 
-        # smooth regions
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        motion_mask = cv2.morphologyEx(motion_mask, cv2.MORPH_OPEN, kernel)
-        motion_mask = cv2.dilate(motion_mask, kernel)
+        # remove small pixel clusters
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            motion_mask, connectivity=8
+        )
+        for lbl in range(1, num_labels):  # 0 is background
+            area = int(stats[lbl, cv2.CC_STAT_AREA])
+            if area < 100:
+                motion_mask[labels == lbl] = 0
 
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
