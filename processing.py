@@ -86,7 +86,7 @@ class Frame:
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
         for o in self.prev_object_detections:
-            prev_mask[o["box"][0] : o["box"][2], o["box"][1] : o["box"][3]] = 255
+            prev_mask[o["box"][1] : o["box"][3], o["box"][0] : o["box"][2]] = 255
 
         # combine motion and previous detection masks
         mask = cv2.bitwise_or(motion_mask, prev_mask)
