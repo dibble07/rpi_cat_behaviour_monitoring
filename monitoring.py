@@ -34,4 +34,4 @@ def monitoring_thread():
         q_len = frame_queue.qsize()
         logger.info(f"Frame queue length: {q_len}")
 
-        time.sleep(0.5)
+        time.sleep(2)
