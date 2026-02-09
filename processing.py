@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
 import queue
 from datetime import datetime, timedelta
-from typing import List, Union
+from typing import List, Optional, Union
 
 import cv2
 import numpy as np
+import torch
 from ultralytics import YOLO
 
 from config import SYSTEM, settings
@@ -37,14 +40,21 @@ class Frame:
         self,
         timestamp: datetime,
         image: np.ndarray,
-        prev_image_grey_blur: np.ndarray,
-        prev_object_detections: List,
+        prev_frame: Optional[Frame],
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
-        self.prev_image_grey_blur = prev_image_grey_blur
-        self.prev_object_detections = prev_object_detections
+
+        if prev_frame is None:
+            logger.warning(f"No previous frame provided")
+            self.prev_image_grey_blur = np.zeros(
+                (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+            )
+            self.prev_object_detections = []  # type: ignore
+        else:
+            self.prev_image_grey_blur = prev_frame.image_grey_blur.copy()
+            self.prev_object_detections = prev_frame.object_detections.copy()
 
     @property
     def image_grey_blur(self) -> np.ndarray:
@@ -67,16 +77,28 @@ class Frame:
         fore_mask = BACK_SUB.apply(self.image)
 
         # combine change and foreground masks
-        mask = cv2.bitwise_or(diff_mask, fore_mask)
+        motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
 
-        # smooth regions
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.dilate(mask, kernel)
+        # remove small pixel clusters
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
+            motion_mask, connectivity=8
+        )
+        for lbl in range(1, num_labels):  # 0 is background
+            area = int(stats[lbl, cv2.CC_STAT_AREA])
+            if area < 100:
+                motion_mask[labels == lbl] = 0
+
+        # get mask of previous detections
+        prev_mask = np.zeros_like(self.image_grey_blur)
+        for o in self.prev_object_detections:
+            prev_mask[o["box"][1] : o["box"][3], o["box"][0] : o["box"][2]] = 255
+
+        # combine motion and previous detection masks
+        mask = cv2.bitwise_or(motion_mask, prev_mask)
 
         # store motion mask and presence flag
         self._motion_mask = mask
-        self._has_motion = mask.mean() / 255 > 0.01
+        self._has_motion = mask.mean() / 255 > 0.001
 
         # log detection duration
         elapsed = (datetime.now() - start).total_seconds()
@@ -98,6 +120,70 @@ class Frame:
             self._detect_motion()
         return self._has_motion
 
+    def _identify_motion_bbox(self):
+
+        logger.debug(f"({self.hash}) Identifying bounding box of motion")
+
+        # identify image size and mask coordinates
+        h, w = self.image.shape[:2]
+        ys, xs = np.where(self.motion_mask > 0)
+
+        # identify initial padded bounding box
+        pad = int(0.1 * h)
+        y1, y2 = max(0, int(ys.min()) - pad), min(h - 1, int(ys.max()) + pad)
+        x1, x2 = max(0, int(xs.min()) - pad), min(w - 1, int(xs.max()) + pad)
+
+        # calculate current and target aspect ratio
+        box_h = y2 - y1 + 1
+        box_w = x2 - x1 + 1
+        target_ar = w / h
+        box_ar = box_w / box_h
+
+        if box_ar == target_ar:
+
+            self._motion_bbox = None
+
+        else:
+
+            # calculate extra pixels needed and space either side
+            if box_ar < target_ar:
+                new_w = int(round(box_h * target_ar))
+                delta = new_w - box_w
+                space_bef, space_aft = x1, w - x2 - 1
+            elif box_ar > target_ar:
+                new_h = int(round(box_w / target_ar))
+                delta = new_h - box_h
+                space_bef, space_aft = y1, h - y2 - 1
+
+            # calculate growth either side, targetting symmetry but guaranteeing aspect ratio
+            if space_bef <= space_aft:
+                grow_bef = min(delta // 2, space_bef)
+                grow_aft = delta - grow_bef
+            else:
+                grow_aft = min(delta // 2, space_aft)
+                grow_bef = delta - grow_aft
+
+            # update bounding box locations
+            if box_ar < target_ar:
+                x1 -= grow_bef
+                x2 += grow_aft
+            elif box_ar > target_ar:
+                y1 -= grow_bef
+                y2 += grow_aft
+
+            # check aspect ratio is within rounding range
+            low_ar = (x2 - x1 + 0.5) / (y2 - y1 + 1.5)
+            high_ar = (x2 - x1 + 1.5) / (y2 - y1 + 0.5)
+            assert low_ar <= target_ar <= high_ar
+
+        self._motion_bbox = [x1, y1, x2, y2]
+
+    @property
+    def motion_bbox(self) -> Optional[list]:
+        if not hasattr(self, "_motion_bbox"):
+            self._identify_motion_bbox()
+        return self._motion_bbox
+
     def _detect_objects(self):
         # initialise detections output
         self._object_detections = []
@@ -108,9 +194,27 @@ class Frame:
             start = datetime.now()
             logger.debug(f"({self.hash}) Running object detection")
 
+            # crop image to motion
+            if self.motion_bbox is None:
+                image = self.image.copy()
+                offsets = torch.tensor([0, 0, 0, 0])
+            else:
+                image = self.image[
+                    self.motion_bbox[1] : self.motion_bbox[3],
+                    self.motion_bbox[0] : self.motion_bbox[2],
+                ].copy()
+                offsets = torch.tensor(
+                    [
+                        self.motion_bbox[0],
+                        self.motion_bbox[1],
+                        self.motion_bbox[0],
+                        self.motion_bbox[1],
+                    ]
+                )
+
             # run model inference
             results = MODEL(
-                self.image,
+                image,
                 imgsz=settings.IMGSZ,
                 verbose=False,
                 max_det=settings.MAX_DETS,
@@ -120,7 +224,7 @@ class Frame:
             for r in results.boxes:
                 self._object_detections.append(
                     {
-                        "box": r.xyxy[0].detach().cpu().int().tolist(),
+                        "box": (r.xyxy[0].detach().cpu().int() + offsets).tolist(),
                         "conf": float(r.conf[0].item()),
                         "class": int(r.cls[0].item()),
                     }
@@ -249,22 +353,14 @@ def processing_thread():
     # initialise state and previous frame
     recording = False
     writer = None
-    prev_image_grey_blur = np.zeros(
-        (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
-    )
-    prev_object_detections = []  # type: ignore
+    prev_frame = None
 
     while not shutdown_event.is_set() or not frame_queue.empty():
 
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
-            frame = Frame(
-                timestamp=timestamp,
-                image=image,
-                prev_image_grey_blur=prev_image_grey_blur,
-                prev_object_detections=prev_object_detections,
-            )
+            frame = Frame(timestamp=timestamp, image=image, prev_frame=prev_frame)
         except queue.Empty:
             continue
 
@@ -337,8 +433,7 @@ def processing_thread():
                 pass
 
         # update current frame to be previous frame
-        prev_image_grey_blur = frame.prev_image_grey_blur.copy()
-        prev_object_detections = frame.prev_object_detections.copy()
+        prev_frame = frame
 
         # log processing rate
         elapsed = (datetime.now() - start).total_seconds()
