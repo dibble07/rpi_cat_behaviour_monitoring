@@ -30,16 +30,16 @@ class Cv2_camera:
         # set camera resolution
         self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, settings.FRAME_WIDTH)
         self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.FRAME_HEIGHT)
-        width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         # check resolution set correctly
-        if width != settings.FRAME_WIDTH or height != settings.FRAME_HEIGHT:
+        if self.width != settings.FRAME_WIDTH or self.height != settings.FRAME_HEIGHT:
             logger.warning(
-                f"Camera resolution ({width} x {height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
+                f"Camera resolution ({self.width} x {self.height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
         else:
-            logger.info(f"Camera resolution: {width} x {height}")
+            logger.info(f"Camera resolution: {self.width} x {self.height}")
 
         logger.info("Camera object initialised")
 
@@ -62,6 +62,8 @@ class Picamera2_camera:
         # configure camera
         self._mock = False
         self.fps = settings.FPS
+        self.width = settings.FRAME_WIDTH
+        self.height = settings.FRAME_HEIGHT
         config = self.cam.create_video_configuration(
             main={
                 "size": (settings.FRAME_WIDTH, settings.FRAME_HEIGHT),

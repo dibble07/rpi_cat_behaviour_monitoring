@@ -27,7 +27,7 @@ FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
-    np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
+    np.zeros((cam.height, cam.width, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
     verbose=False,
     max_det=settings.MAX_DETS,
@@ -55,7 +55,7 @@ class Frame:
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
             self.prev_image_grey_blur = np.zeros(
-                (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+                (cam.height, cam.width), dtype=np.uint8
             )
             self.prev_object_detections = []  # type: ignore
         else:
