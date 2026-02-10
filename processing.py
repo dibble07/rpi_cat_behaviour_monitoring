@@ -80,13 +80,12 @@ class Frame:
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
 
         # remove small pixel clusters
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-            motion_mask, connectivity=8
+        contours, _ = cv2.findContours(
+            motion_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        for lbl in range(1, num_labels):  # 0 is background
-            area = int(stats[lbl, cv2.CC_STAT_AREA])
-            if area < 100:
-                motion_mask[labels == lbl] = 0
+        for c in contours:
+            if cv2.contourArea(c) < int(0.00005 * motion_mask.size):
+                cv2.drawContours(motion_mask, [c], -1, 0, -1)
 
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
