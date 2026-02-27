@@ -24,7 +24,14 @@ WantedBy=multi-user.target
 
 ## Startup script
 1. Create script file: `/home/robertdibble/rpi_cat_behaviour_monitoring.sh`
-1. Make it executable: `chmod +x /home/robertdibble/rpi_cat_behaviour_monitoring.sh`
+1. Add content to this file:
+```
+#!/bin/bash
+git checkout main
+git pull
+.venv/bin/python app.py
+```
+1. Make it executable: `sudo chmod +x /home/robertdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
 1. Add content to file:
 ```
