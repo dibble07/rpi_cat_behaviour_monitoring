@@ -26,6 +26,12 @@ FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
 
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
+_ = MODEL(
+    np.zeros((cam.height, cam.width, 3), dtype=np.uint8),
+    imgsz=settings.IMGSZ,
+    verbose=False,
+    max_det=settings.MAX_DETS,
+)
 
 # define background subtractor
 BACK_SUB = cv2.createBackgroundSubtractorMOG2(
@@ -49,7 +55,7 @@ class Frame:
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
             self.prev_image_grey_blur = np.zeros(
-                (settings.FRAME_HEIGHT, settings.FRAME_WIDTH), dtype=np.uint8
+                (cam.height, cam.width), dtype=np.uint8
             )
             self.prev_object_detections = []  # type: ignore
         else:
@@ -80,13 +86,12 @@ class Frame:
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
 
         # remove small pixel clusters
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(
-            motion_mask, connectivity=8
+        contours, _ = cv2.findContours(
+            motion_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
-        for lbl in range(1, num_labels):  # 0 is background
-            area = int(stats[lbl, cv2.CC_STAT_AREA])
-            if area < 100:
-                motion_mask[labels == lbl] = 0
+        for c in contours:
+            if cv2.contourArea(c) < int(0.00005 * motion_mask.size):
+                cv2.drawContours(motion_mask, [c], -1, 0, -1)
 
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
@@ -98,7 +103,7 @@ class Frame:
 
         # store motion mask and presence flag
         self._motion_mask = mask
-        self._has_motion = mask.mean() / 255 > 0.001
+        self._has_motion = (cv2.countNonZero(mask) / mask.size) > 0.001
 
         # log detection duration
         elapsed = (datetime.now() - start).total_seconds()
