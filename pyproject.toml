@@ -3,9 +3,8 @@ name = "rpi-cat-behaviour-monitoring"
 version = "0.1.0"
 description = "Raspberry Pi app to monitor cats with live video feed and identify poor behaviour"
 readme = "README.md"
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.13,<3.14"
 dependencies = [
-    "ai-edge-litert>=1.2.0,<1.4.0",
     "dynaconf>=3.2.12",
     "ultralytics>=8.3.239",
 ]
@@ -18,15 +17,16 @@ dev = [
     "isort==7.0.0",
     "jupyter>=1.1.1",
     "mypy==1.19.1",
-    "onnx2tf>=1.26.3",
-    "onnx-graphsurgeon>=0.3.26",
+    "onnxruntime>=1.23.2",
+    "onnxruntime-tools>=1.7.0",
+    "onnxslim>=0.1.80",
+    "onnxruntime>=1.23.2",
+    "onnxruntime-tools>=1.7.0",
+    "onnxslim>=0.1.80",
     "pandas>=2.3.3",
     "pre-commit==4.5.0",
     "pycocotools>=2.0.11",
     "seaborn>=0.13.2",
-    "sng4onnx>=1.0.1",
-    "tensorflow>=2.0.0,<=2.19.0",
-    "tf-keras<=2.19.0",
     "tqdm>=4.67.1",
 ]
 
