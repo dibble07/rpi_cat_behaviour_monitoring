@@ -22,6 +22,14 @@ WantedBy=multi-user.target
 1. Optionally run script immediately to test: `sudo systemctl start disable-wifi-powersave.service`
 1. Check output `iw dev wlan0 get power_save`
 
+## Python env setup
+`picamera2` depends on system libraries not available via pip. Install via apt and create a venv with system site-packages access:
+```
+sudo apt install -y python3-picamera2 python3-libcamera
+uv venv --python 3.13 --system-site-packages
+uv sync --no-dev
+```
+
 ## Startup script
 1. Create script file: `/home/robertdibble/rpi_cat_behaviour_monitoring.sh`
 1. Add content to this file:
@@ -29,6 +37,7 @@ WantedBy=multi-user.target
 #!/bin/bash
 git checkout main
 git pull
+uv sync --no-dev
 .venv/bin/python app.py
 ```
 1. Make it executable: `sudo chmod +x /home/robertdibble/rpi_cat_behaviour_monitoring.sh`

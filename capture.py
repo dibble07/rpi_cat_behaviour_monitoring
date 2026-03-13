@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime
 
-from config import SYSTEM
+from config import SYSTEM, settings
 from shared import cam, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 def capture_thread():
     """Continuously capture camera frames and add to queue"""
+    if SYSTEM == "Linux":
+        getattr(os, "sched_setaffinity")(0, settings.CPU_CAPTURE)
+        logger.info(f"Capture thread pinned to CPU(s) {settings.CPU_CAPTURE}")
     logger.info("Capture thread started")
 
     # set capture constants
