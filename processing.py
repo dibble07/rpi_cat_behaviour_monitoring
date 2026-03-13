@@ -91,7 +91,7 @@ class Frame:
         )
         for c in contours:
             if cv2.contourArea(c) < int(0.00005 * motion_mask.size):
-                cv2.drawContours(motion_mask, [c], -1, 0, -1)
+                cv2.drawContours(motion_mask, [c], -1, (0,), -1)
 
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
@@ -350,6 +350,9 @@ class PreBuffer:
 
 def processing_thread():
     """Process frames to detect objects and record videos"""
+    if SYSTEM == "Linux":
+        getattr(os, "sched_setaffinity")(0, settings.CPU_PROCESSING)
+        logger.info(f"Processing thread pinned to CPU(s) {settings.CPU_PROCESSING}")
     logger.info("Processing thread started")
 
     # initialise preroll buffer

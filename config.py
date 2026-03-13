@@ -25,3 +25,13 @@ settings = Dynaconf(settings_files=[_SETTINGS_PATH_GENEREAL, _SETTINGS_PATH_PLAT
 settings.EXCLUDED_CLASSES = {
     int(x.strip()) for x in settings.EXCLUDED_CLASSES.split(",")
 }
+
+# parse CPU affinity sets (Linux/RPi only)
+if SYSTEM == "Linux":
+    settings.CPU_CAPTURE = {int(x.strip()) for x in settings.CPU_CAPTURE.split(",")}
+    settings.CPU_PROCESSING = {
+        int(x.strip()) for x in settings.CPU_PROCESSING.split(",")
+    }
+    settings.CPU_MONITORING = {
+        int(x.strip()) for x in settings.CPU_MONITORING.split(",")
+    }
