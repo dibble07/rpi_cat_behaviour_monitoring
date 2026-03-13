@@ -9,7 +9,6 @@ from typing import List, Optional, Union
 
 import cv2
 import numpy as np
-import torch
 from ultralytics import YOLO
 
 from config import SYSTEM, settings
@@ -202,19 +201,20 @@ class Frame:
             # crop image to motion
             if self.motion_bbox is None:
                 image = self.image.copy()
-                offsets = torch.tensor([0, 0, 0, 0])
+                offsets = np.array([0, 0, 0, 0], dtype=np.int32)
             else:
                 image = self.image[
                     self.motion_bbox[1] : self.motion_bbox[3],
                     self.motion_bbox[0] : self.motion_bbox[2],
                 ].copy()
-                offsets = torch.tensor(
+                offsets = np.array(
                     [
                         self.motion_bbox[0],
                         self.motion_bbox[1],
                         self.motion_bbox[0],
                         self.motion_bbox[1],
-                    ]
+                    ],
+                    dtype=np.int32,
                 )
 
             # run model inference
@@ -229,7 +229,9 @@ class Frame:
             for r in results.boxes:
                 self._object_detections.append(
                     {
-                        "box": (r.xyxy[0].detach().cpu().int() + offsets).tolist(),
+                        "box": (
+                            r.xyxy[0].cpu().numpy().astype(np.int32) + offsets
+                        ).tolist(),
                         "conf": float(r.conf[0].item()),
                         "class": int(r.cls[0].item()),
                     }
