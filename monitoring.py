@@ -4,7 +4,6 @@ import time
 
 import psutil
 
-from config import SYSTEM, settings
 from shared import frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
@@ -12,9 +11,6 @@ process = psutil.Process(os.getpid())
 
 
 def monitoring_thread():
-    if SYSTEM == "Linux":
-        getattr(os, "sched_setaffinity")(0, settings.CPU_MONITORING)
-        logger.info(f"Monitoring thread pinned to CPU(s) {settings.CPU_MONITORING}")
 
     # prepare percent sampling
     psutil.cpu_percent(percpu=True)
