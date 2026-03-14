@@ -397,6 +397,11 @@ def processing_thread():
                     writer = cv2.VideoWriter(
                         out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
                     )
+                    if not writer.isOpened():
+                        logger.error(f"Failed to open VideoWriter for {out_path}")
+                        recording = False
+                        writer = None
+                        continue
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
                     for bf in pre_buffer:
