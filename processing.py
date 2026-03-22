@@ -21,7 +21,7 @@ ANN_COLOUR = (0, 200, 0)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # video type
-FOURCC = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
+FOURCC = cv2.VideoWriter_fourcc(*"MJPG")  # type: ignore
 
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
@@ -392,7 +392,7 @@ def processing_thread():
                 if not recording:
                     out_path = os.path.join(
                         settings.OUTPUT_DIR,
-                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
+                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
                     )
                     writer = cv2.VideoWriter(
                         out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
