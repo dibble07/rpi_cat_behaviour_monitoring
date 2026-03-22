@@ -1,4 +1,4 @@
-path: coco_nolarge_subclass_downsample
+path: coco4000_subclass_downsample
 train: images/train2017
 val: images/val2017
 
