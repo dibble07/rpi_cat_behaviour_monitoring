@@ -214,3 +214,6 @@ models/
 runs/
 sample_images/
 object_clips/
+
+# Docs
+*.pdf
