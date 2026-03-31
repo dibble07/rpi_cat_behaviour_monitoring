@@ -49,7 +49,10 @@ class Frame:
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
+        start = datetime.now()
         self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
+        elapsed = (datetime.now() - start).total_seconds()
+        logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
@@ -367,13 +370,12 @@ def processing_thread():
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
+            start = datetime.now()
             frame = Frame(timestamp=timestamp, image=image, prev_frame=prev_frame)
         except queue.Empty:
             continue
 
-        # start timing
         logger.debug(f"({frame.hash}) Running processing")
-        start = datetime.now()
 
         if frame.object_detections:
 
