@@ -82,7 +82,12 @@ class Frame:
         _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
 
         # get mask of foreground from background removal model
-        fore_mask = BACK_SUB.apply(self.image)
+        small = cv2.resize(self.image, (0, 0), fx=0.25, fy=0.25)
+        fore_mask = cv2.resize(
+            BACK_SUB.apply(small),
+            (self.image.shape[1], self.image.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
 
         # combine change and foreground masks
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
