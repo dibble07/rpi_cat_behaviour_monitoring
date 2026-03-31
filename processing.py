@@ -50,7 +50,7 @@ class Frame:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         start = datetime.now()
-        self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
+        self.hash = hashlib.md5(image[::5, ::5].tobytes()).hexdigest()[:6]
         elapsed = (datetime.now() - start).total_seconds()
         logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
