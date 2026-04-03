@@ -411,10 +411,14 @@ def processing_thread():
                         continue
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
+                    start_buf = datetime.now()
                     for bf in pre_buffer:
                         writer.write(bf.image_annotated)
                     logger.info(
                         f"Written {pre_buffer_len} frames from pre detection buffer"
+                    )
+                    logger.debug(
+                        f"({frame.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
                     )
                     recording = True
 
@@ -422,7 +426,11 @@ def processing_thread():
 
             # write current frame and assess post buffer termination
             if not frame.has_excluded_class:
+                start_write = datetime.now()
                 writer.write(frame.image_annotated)
+                logger.debug(
+                    f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
+                )
                 last_detection_dur = (
                     frame.timestamp - last_detection_time
                 ).total_seconds()
