@@ -36,7 +36,7 @@ def capture_thread():
         delay = frame_period - elapsed
         logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
         if delay > 0:
-            logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.3f} ms")
+            logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms")
             time.sleep(delay)
         else:
             logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
