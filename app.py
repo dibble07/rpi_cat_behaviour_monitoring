@@ -23,7 +23,7 @@ logging.basicConfig(
         logging.FileHandler(
             os.path.join(
                 settings.OUTPUT_DIR,
-                f"logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs.txt",
             ),
             "a",
         ),
