@@ -37,6 +37,12 @@ BACK_SUB = cv2.createBackgroundSubtractorMOG2(
     history=settings.BACKGROUND_HISTORY, detectShadows=False
 )
 
+# low-resolution dimensions used for motion detection
+_GREY_W = 640
+_GREY_H = 480
+_GREY_SCALE_X = 640 / cam.width
+_GREY_SCALE_Y = 480 / cam.height
+
 
 class Frame:
     """Store frame image and timestamp as well as supplementary processing and annotations"""
@@ -49,27 +55,25 @@ class Frame:
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
+        self.image_grey_blur = cv2.GaussianBlur(
+            cv2.resize(
+                cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
+            ),
+            (5, 5),
+            0,
+        )
         start = datetime.now()
-        self.hash = hashlib.md5(image[::5, ::5].tobytes()).hexdigest()[:6]
+        self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
         elapsed = (datetime.now() - start).total_seconds()
         logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
-            self.prev_image_grey_blur = np.zeros(
-                (cam.height, cam.width), dtype=np.uint8
-            )
+            self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
             self.prev_object_detections = []  # type: ignore
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy()
             self.prev_object_detections = prev_frame.object_detections.copy()
-
-    @property
-    def image_grey_blur(self) -> np.ndarray:
-        if not hasattr(self, "_image_grey_blur"):
-            grey = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-            self._image_grey_blur = cv2.GaussianBlur(grey, (5, 5), 0)
-        return self._image_grey_blur
 
     def _detect_motion(self):
 
@@ -82,12 +86,7 @@ class Frame:
         _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
 
         # get mask of foreground from background removal model
-        small = cv2.resize(self.image, (0, 0), fx=0.25, fy=0.25)
-        fore_mask = cv2.resize(
-            BACK_SUB.apply(small),
-            (self.image.shape[1], self.image.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
+        fore_mask = BACK_SUB.apply(self.image_grey_blur)
 
         # combine change and foreground masks
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
@@ -103,13 +102,19 @@ class Frame:
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
         for o in self.prev_object_detections:
-            prev_mask[o["box"][1] : o["box"][3], o["box"][0] : o["box"][2]] = 255
+            x1 = int(o["box"][0] * _GREY_SCALE_X)
+            y1 = int(o["box"][1] * _GREY_SCALE_Y)
+            x2 = int(o["box"][2] * _GREY_SCALE_X)
+            y2 = int(o["box"][3] * _GREY_SCALE_Y)
+            prev_mask[y1:y2, x1:x2] = 255
 
         # combine motion and previous detection masks
         mask = cv2.bitwise_or(motion_mask, prev_mask)
 
         # store motion mask and presence flag
-        self._motion_mask = mask
+        self._motion_mask = cv2.resize(
+            mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
+        )
         self._has_motion = (cv2.countNonZero(mask) / mask.size) > 0.001
 
         # log detection duration
