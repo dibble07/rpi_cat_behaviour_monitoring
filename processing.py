@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import queue
+import subprocess
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -21,8 +22,6 @@ ANN_COLOUR = (0, 200, 0)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # video type
-FOURCC = cv2.VideoWriter_fourcc(*"MJPG")  # type: ignore
-
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
@@ -42,6 +41,64 @@ _GREY_W = 640
 _GREY_H = 480
 _GREY_SCALE_X = 640 / cam.width
 _GREY_SCALE_Y = 480 / cam.height
+
+
+class FFmpegWriter:
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG.
+    Remove this class once quality is confirmed working on target hardware."""
+
+    def __init__(self, path: str, fps: float, width: int, height: int, qv: int):
+        self._cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{width}x{height}",
+            "-r",
+            str(fps),
+            "-i",
+            "pipe:0",
+            "-c:v",
+            "mjpeg",
+            "-q:v",
+            str(qv),
+            "-pix_fmt",
+            "yuvj420p",
+            path,
+        ]
+        logger.warning(f"FFmpegWriter: q:v={qv} | cmd: {' '.join(self._cmd)}")
+        self._proc = subprocess.Popen(
+            self._cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        if self._proc.poll() is not None:
+            raise RuntimeError(f"ffmpeg failed to start for {path}")
+        self._closed = False
+
+    def write(self, frame: np.ndarray) -> None:
+        if not self._closed:
+            try:
+                self._proc.stdin.write(frame.tobytes())
+            except BrokenPipeError:
+                self._closed = True
+                logger.error("FFmpegWriter: broken pipe — ffmpeg exited unexpectedly")
+
+    def release(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._proc.stdin.close()
+            rc = self._proc.wait()
+            stderr_bytes = self._proc.stderr.read()
+            if rc != 0:
+                logger.error(
+                    f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
+                    f"{stderr_bytes.decode(errors='replace')[-500:]}"
+                )
 
 
 class Frame:
@@ -406,14 +463,9 @@ def processing_thread():
                         settings.OUTPUT_DIR,
                         f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
                     )
-                    writer = cv2.VideoWriter(
-                        out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
+                    writer = FFmpegWriter(
+                        out_path, cam.fps, cam.width, cam.height, settings.MJPEG_QV
                     )
-                    if not writer.isOpened():
-                        logger.error(f"Failed to open VideoWriter for {out_path}")
-                        recording = False
-                        writer = None
-                        continue
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
                     start_buf = datetime.now()
