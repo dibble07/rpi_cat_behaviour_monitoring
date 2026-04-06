@@ -5,6 +5,7 @@ import logging
 import os
 import queue
 import subprocess
+import threading
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -48,7 +49,7 @@ class FFmpegWriter:
     Remove this class once quality is confirmed working on target hardware."""
 
     def __init__(self, path: str, fps: float, width: int, height: int, qv: int):
-        self._cmd = [
+        cmd = [
             "ffmpeg",
             "-y",
             "-f",
@@ -69,36 +70,40 @@ class FFmpegWriter:
             "yuvj420p",
             path,
         ]
-        logger.warning(f"FFmpegWriter: q:v={qv} | cmd: {' '.join(self._cmd)}")
+        logger.warning(f"FFmpegWriter: q:v={qv} | cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
-            self._cmd,
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
-        self._closed = False
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._thread.start()
+
+    def _writer_loop(self) -> None:
+        while True:
+            frame = self._queue.get()
+            if frame is None:
+                break
+            self._proc.stdin.write(frame.tobytes())
 
     def write(self, frame: np.ndarray) -> None:
-        if not self._closed:
-            try:
-                self._proc.stdin.write(frame.tobytes())
-            except BrokenPipeError:
-                self._closed = True
-                logger.error("FFmpegWriter: broken pipe — ffmpeg exited unexpectedly")
+        self._queue.put(frame)
 
     def release(self) -> None:
-        if not self._closed:
-            self._closed = True
-            self._proc.stdin.close()
-            rc = self._proc.wait()
-            stderr_bytes = self._proc.stderr.read()
-            if rc != 0:
-                logger.error(
-                    f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
-                    f"{stderr_bytes.decode(errors='replace')[-500:]}"
-                )
+        self._queue.put(None)
+        self._thread.join()
+        self._proc.stdin.close()
+        rc = self._proc.wait()
+        stderr_bytes = self._proc.stderr.read()
+        if rc != 0:
+            logger.error(
+                f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
+                f"{stderr_bytes.decode(errors='replace')[-500:]}"
+            )
 
 
 class Frame:
