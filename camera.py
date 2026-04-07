@@ -72,8 +72,6 @@ class Picamera2_camera:
             controls={
                 "FrameRate": self.fps,
                 "AeEnable": True,
-                "ExposureTime": settings.EXPOSURETIME,
-                "AnalogueGain": 0,
             },
         )
         self.cam.configure(config)
