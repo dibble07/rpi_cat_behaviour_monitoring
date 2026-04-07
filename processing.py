@@ -48,7 +48,16 @@ class FFmpegWriter:
     """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG.
     Remove this class once quality is confirmed working on target hardware."""
 
-    def __init__(self, path: str, fps: float, width: int, height: int, qv: int):
+    def __init__(
+        self,
+        path: str,
+        fps: float,
+        width: int,
+        height: int,
+        qv: int,
+        out_width: int,
+        out_height: int,
+    ):
         cmd = [
             "ffmpeg",
             "-y",
@@ -62,6 +71,8 @@ class FFmpegWriter:
             str(fps),
             "-i",
             "pipe:0",
+            "-vf",
+            f"scale={out_width}:{out_height}",
             "-c:v",
             "mjpeg",
             "-q:v",
@@ -74,7 +85,7 @@ class FFmpegWriter:
             "1M",
             path,
         ]
-        logger.warning(f"FFmpegWriter: q:v={qv} | cmd: {' '.join(cmd)}")
+        logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -473,7 +484,13 @@ def processing_thread():
                         f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
                     )
                     writer = FFmpegWriter(
-                        out_path, cam.fps, cam.width, cam.height, settings.MJPEG_QV
+                        out_path,
+                        cam.fps,
+                        cam.width,
+                        cam.height,
+                        settings.MJPEG_QV,
+                        settings.OUTPUT_WIDTH,
+                        settings.OUTPUT_HEIGHT,
                     )
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
