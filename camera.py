@@ -72,8 +72,6 @@ class Picamera2_camera:
             controls={
                 "FrameRate": self.fps,
                 "AeEnable": True,
-                "ExposureTime": settings.EXPOSURETIME,
-                "AnalogueGain": 0,
             },
         )
         self.cam.configure(config)
@@ -86,7 +84,7 @@ class Picamera2_camera:
     def __call__(self):
         frame = self.cam.capture_array()[..., :3]
         logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
-        return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        return frame
 
 
 def get_camera() -> Union[Cv2_camera, Picamera2_camera]:
