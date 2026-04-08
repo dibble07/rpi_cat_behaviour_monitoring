@@ -59,6 +59,8 @@ try:
             time.sleep(0.1)
 except KeyboardInterrupt:
     shutdown_event.set()
+finally:
+    shutdown_event.set()
 
 # close down application
 logger.info("Waiting for threads to finish...")
