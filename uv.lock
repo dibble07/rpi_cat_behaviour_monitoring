@@ -2494,6 +2494,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "dynaconf" },
+    { name = "ncnn" },
     { name = "ultralytics" },
 ]
 
@@ -2508,11 +2509,6 @@ dev = [
     { name = "mnn" },
     { name = "mypy" },
     { name = "ncnn" },
-    { name = "numpy" },
-    { name = "onnx" },
-    { name = "onnxruntime" },
-    { name = "onnxslim" },
-    { name = "openvino" },
     { name = "pandas" },
     { name = "pnnx" },
     { name = "pre-commit" },
@@ -2524,6 +2520,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dynaconf", specifier = ">=3.2.12" },
+    { name = "ncnn", specifier = ">=1.0.20260114" },
     { name = "ultralytics", specifier = ">=8.4.0" },
 ]
 
@@ -2538,11 +2535,6 @@ dev = [
     { name = "mnn", specifier = ">=3.4.1" },
     { name = "mypy", specifier = "==1.19.1" },
     { name = "ncnn", specifier = ">=1.0.20260114" },
-    { name = "numpy", specifier = "<=2.3.5" },
-    { name = "onnx", specifier = ">=1.21.0" },
-    { name = "onnxruntime", specifier = ">=1.24.4" },
-    { name = "onnxslim", specifier = ">=0.1.71" },
-    { name = "openvino", specifier = ">=2026.0.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "pnnx", specifier = ">=20260112" },
     { name = "pre-commit", specifier = "==4.5.0" },

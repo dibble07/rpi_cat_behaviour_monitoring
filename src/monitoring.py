@@ -34,4 +34,10 @@ def monitoring_thread():
         q_len = frame_queue.qsize()
         logger.info(f"Frame queue length: {q_len}")
 
+        # disk I/O wait
+        disk_io = psutil.disk_io_counters()
+        logger.info(
+            f"Disk write: {disk_io.write_bytes / (1024 * 1024):.0f} MB total | busy_time: {disk_io.busy_time} ms"
+        )
+
         time.sleep(2)

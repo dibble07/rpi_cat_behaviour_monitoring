@@ -31,7 +31,7 @@ uv sync --no-dev
 ```
 
 ## Startup script
-1. Create script file: `/home/robertdibble/rpi_cat_behaviour_monitoring.sh`
+1. Create script file: `/home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Add content to this file:
 ```
 #!/bin/bash
@@ -40,7 +40,7 @@ git pull
 uv sync --no-dev
 .venv/bin/python app.py
 ```
-1. Make it executable: `sudo chmod +x /home/robertdibble/rpi_cat_behaviour_monitoring.sh`
+1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
 1. Add content to file:
 ```
@@ -49,9 +49,9 @@ Description=Run startup script for cat behaviour monitor
 After=network.target
 
 [Service]
-User=robertdibble
-WorkingDirectory=/home/robertdibble/rpi_cat_behaviour_monitoring
-ExecStart=/home/robertdibble/rpi_cat_behaviour_monitoring.sh
+User=rpdibble
+WorkingDirectory=/home/rpdibble/rpi_cat_behaviour_monitoring
+ExecStart=/home/rpdibble/rpi_cat_behaviour_monitoring.sh
 Restart=on-failure
 RestartSec=10
 StartLimitBurst=3
@@ -66,6 +66,8 @@ WantedBy=multi-user.target
 1. Stop running service and disable startup execution: `sudo systemctl stop startup.service` and `sudo systemctl disable startup.service`
 
 ## Cloud sync script
+1. [Install rclone](https://rclone.org/install/#script-installation)
+1. Run `rclone config` and get credentials [info](https://console.cloud.google.com/auth/clients?project=rpi-cat-behaviour-monitor) to complete
 1. Create a systemd service file: `/etc/systemd/system/rclone-sync.service`
 1. Add content to file:
 ```
@@ -74,8 +76,8 @@ Description=Sync object_clips folder to Google Drive
 
 [Service]
 Type=oneshot
-User=robertdibble
-ExecStart=/usr/bin/rclone sync /home/robertdibble/rpi_cat_behaviour_monitoring/object_clips/ gdrive:rpi_cat_behaviour_monitoring/object_clips
+User=rpdibble
+ExecStart=/usr/bin/rclone sync /home/rpdibble/rpi_cat_behaviour_monitoring/object_clips/ gdrive:rpi_cat_behaviour_monitoring/object_clips
 ```
 1. Create a systemd timer file: `/etc/systemd/system/rclone-sync.timer`
 1. Add content to file:

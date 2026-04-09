@@ -4,6 +4,8 @@ import hashlib
 import logging
 import os
 import queue
+import subprocess
+import threading
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -21,8 +23,6 @@ ANN_COLOUR = (0, 200, 0)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # video type
-FOURCC = cv2.VideoWriter_fourcc(*"MJPG")  # type: ignore
-
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
@@ -37,6 +37,89 @@ BACK_SUB = cv2.createBackgroundSubtractorMOG2(
     history=settings.BACKGROUND_HISTORY, detectShadows=False
 )
 
+# low-resolution dimensions used for motion detection
+_GREY_W = 640
+_GREY_H = 480
+_GREY_SCALE_X = 640 / cam.width
+_GREY_SCALE_Y = 480 / cam.height
+
+
+class FFmpegWriter:
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG.
+    Remove this class once quality is confirmed working on target hardware."""
+
+    def __init__(
+        self,
+        path: str,
+        fps: float,
+        width: int,
+        height: int,
+        qv: int,
+        out_width: int,
+        out_height: int,
+    ):
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{width}x{height}",
+            "-r",
+            str(fps),
+            "-i",
+            "pipe:0",
+            "-vf",
+            f"scale={out_width}:{out_height}",
+            "-c:v",
+            "mjpeg",
+            "-q:v",
+            str(qv),
+            "-pix_fmt",
+            "yuvj420p",
+            "-maxrate",
+            "2M",
+            "-bufsize",
+            "1M",
+            path,
+        ]
+        logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
+        self._proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        if self._proc.poll() is not None:
+            raise RuntimeError(f"ffmpeg failed to start for {path}")
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._thread.start()
+
+    def _writer_loop(self) -> None:
+        while True:
+            frame = self._queue.get()
+            if frame is None:
+                break
+            self._proc.stdin.write(frame.tobytes())
+
+    def write(self, frame: np.ndarray) -> None:
+        self._queue.put(frame)
+
+    def release(self) -> None:
+        self._queue.put(None)
+        self._thread.join()
+        self._proc.stdin.close()
+        rc = self._proc.wait()
+        stderr_bytes = self._proc.stderr.read()
+        if rc != 0:
+            logger.error(
+                f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
+                f"{stderr_bytes.decode(errors='replace')[-500:]}"
+            )
+
 
 class Frame:
     """Store frame image and timestamp as well as supplementary processing and annotations"""
@@ -49,24 +132,25 @@ class Frame:
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
-        self.hash = hashlib.md5(image.tobytes()).hexdigest()[:6]
+        self.image_grey_blur = cv2.GaussianBlur(
+            cv2.resize(
+                cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
+            ),
+            (5, 5),
+            0,
+        )
+        start = datetime.now()
+        self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
+        elapsed = (datetime.now() - start).total_seconds()
+        logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
-            self.prev_image_grey_blur = np.zeros(
-                (cam.height, cam.width), dtype=np.uint8
-            )
+            self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
             self.prev_object_detections = []  # type: ignore
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy()
             self.prev_object_detections = prev_frame.object_detections.copy()
-
-    @property
-    def image_grey_blur(self) -> np.ndarray:
-        if not hasattr(self, "_image_grey_blur"):
-            grey = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-            self._image_grey_blur = cv2.GaussianBlur(grey, (5, 5), 0)
-        return self._image_grey_blur
 
     def _detect_motion(self):
 
@@ -79,7 +163,7 @@ class Frame:
         _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
 
         # get mask of foreground from background removal model
-        fore_mask = BACK_SUB.apply(self.image)
+        fore_mask = BACK_SUB.apply(self.image_grey_blur)
 
         # combine change and foreground masks
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
@@ -95,13 +179,19 @@ class Frame:
         # get mask of previous detections
         prev_mask = np.zeros_like(self.image_grey_blur)
         for o in self.prev_object_detections:
-            prev_mask[o["box"][1] : o["box"][3], o["box"][0] : o["box"][2]] = 255
+            x1 = int(o["box"][0] * _GREY_SCALE_X)
+            y1 = int(o["box"][1] * _GREY_SCALE_Y)
+            x2 = int(o["box"][2] * _GREY_SCALE_X)
+            y2 = int(o["box"][3] * _GREY_SCALE_Y)
+            prev_mask[y1:y2, x1:x2] = 255
 
         # combine motion and previous detection masks
         mask = cv2.bitwise_or(motion_mask, prev_mask)
 
         # store motion mask and presence flag
-        self._motion_mask = mask
+        self._motion_mask = cv2.resize(
+            mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
+        )
         self._has_motion = (cv2.countNonZero(mask) / mask.size) > 0.001
 
         # log detection duration
@@ -367,13 +457,12 @@ def processing_thread():
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
+            start = datetime.now()
             frame = Frame(timestamp=timestamp, image=image, prev_frame=prev_frame)
         except queue.Empty:
             continue
 
-        # start timing
         logger.debug(f"({frame.hash}) Running processing")
-        start = datetime.now()
 
         if frame.object_detections:
 
@@ -394,20 +483,25 @@ def processing_thread():
                         settings.OUTPUT_DIR,
                         f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
                     )
-                    writer = cv2.VideoWriter(
-                        out_path, FOURCC, cam.fps, frame.image.shape[:2][::-1]
+                    writer = FFmpegWriter(
+                        out_path,
+                        cam.fps,
+                        cam.width,
+                        cam.height,
+                        settings.MJPEG_QV,
+                        settings.OUTPUT_WIDTH,
+                        settings.OUTPUT_HEIGHT,
                     )
-                    if not writer.isOpened():
-                        logger.error(f"Failed to open VideoWriter for {out_path}")
-                        recording = False
-                        writer = None
-                        continue
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
+                    start_buf = datetime.now()
                     for bf in pre_buffer:
                         writer.write(bf.image_annotated)
                     logger.info(
                         f"Written {pre_buffer_len} frames from pre detection buffer"
+                    )
+                    logger.debug(
+                        f"({frame.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
                     )
                     recording = True
 
@@ -415,7 +509,11 @@ def processing_thread():
 
             # write current frame and assess post buffer termination
             if not frame.has_excluded_class:
+                start_write = datetime.now()
                 writer.write(frame.image_annotated)
+                logger.debug(
+                    f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
+                )
                 last_detection_dur = (
                     frame.timestamp - last_detection_time
                 ).total_seconds()

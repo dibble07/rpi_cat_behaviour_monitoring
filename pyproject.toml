@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "dynaconf>=3.2.12",
+    "ncnn>=1.0.20260114",
     "ultralytics>=8.4.0",
 ]
 
@@ -19,12 +20,6 @@ dev = [
     "jupyter>=1.1.1",
     "mnn>=3.4.1",
     "mypy==1.19.1",
-    "ncnn>=1.0.20260114",
-    "numpy<=2.3.5",
-    "onnx>=1.21.0",
-    "onnxruntime>=1.24.4",
-    "onnxslim>=0.1.71",
-    "openvino>=2026.0.0",
     "pandas>=2.3.3",
     "pnnx>=20260112",
     "pre-commit==4.5.0",
@@ -40,4 +35,4 @@ profile = "black"
 ignore_missing_imports = true
 check_untyped_defs = true
 strict_optional = false
-files = '.'
+files = 'src'
