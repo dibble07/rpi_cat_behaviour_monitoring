@@ -1,5 +1,0 @@
-OUTPUT_DIR = "object_clips"
-FPS = 4
-MAX_DETS = 5
-FRAME_WIDTH = 2560
-FRAME_HEIGHT = 1440
