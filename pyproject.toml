@@ -13,10 +13,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "black[jupyter]==25.12.0",
+    "executorch>=1.1.0",
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.8",
     "isort==7.0.0",
     "jupyter>=1.1.1",
+    "mnn>=3.4.1",
     "mypy==1.19.1",
     "pandas>=2.3.3",
     "pnnx>=20260112",
