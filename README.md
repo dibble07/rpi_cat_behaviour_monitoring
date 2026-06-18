@@ -38,7 +38,7 @@ uv sync --no-dev
 git checkout main
 git pull
 uv sync --no-dev
-.venv/bin/python app.py
+.venv/bin/python src/app.py
 ```
 1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
@@ -86,8 +86,8 @@ ExecStart=/usr/bin/rclone sync /home/rpdibble/rpi_cat_behaviour_monitoring/objec
 Description=Run rclone sync every minute
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1min
+OnBootSec=10min
+OnUnitActiveSec=10min
 Persistent=true
 
 [Install]
