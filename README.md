@@ -38,7 +38,7 @@ uv sync --no-dev
 git checkout main
 git pull
 uv sync --no-dev
-.venv/bin/python app.py
+.venv/bin/python src/app.py
 ```
 1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
