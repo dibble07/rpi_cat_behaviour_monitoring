@@ -14,6 +14,9 @@ from monitoring import monitoring_thread
 from processing import processing_thread
 from shared import display_queue, shutdown_event
 
+# prepare output directory
+os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
@@ -32,9 +35,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 faulthandler.enable()
-
-# prepare output directory
-os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
 # start threads
 capture_t = threading.Thread(target=capture_thread)
