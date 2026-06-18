@@ -86,8 +86,8 @@ ExecStart=/usr/bin/rclone sync /home/rpdibble/rpi_cat_behaviour_monitoring/objec
 Description=Run rclone sync every minute
 
 [Timer]
-OnBootSec=1min
-OnUnitActiveSec=1min
+OnBootSec=10min
+OnUnitActiveSec=10min
 Persistent=true
 
 [Install]
