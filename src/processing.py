@@ -450,6 +450,7 @@ def processing_thread():
     # initialise state and previous frame
     recording = False
     writer = None
+    writer_raw = None
     prev_frame = None
 
     while not shutdown_event.is_set() or not frame_queue.empty():
@@ -483,8 +484,21 @@ def processing_thread():
                         settings.OUTPUT_DIR,
                         f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
                     )
+                    out_raw_path = os.path.join(
+                        settings.OUTPUT_DIR,
+                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
+                    )
                     writer = FFmpegWriter(
                         out_path,
+                        cam.fps,
+                        cam.width,
+                        cam.height,
+                        settings.MJPEG_QV,
+                        settings.OUTPUT_WIDTH,
+                        settings.OUTPUT_HEIGHT,
+                    )
+                    writer_raw = FFmpegWriter(
+                        out_raw_path,
                         cam.fps,
                         cam.width,
                         cam.height,
@@ -497,6 +511,7 @@ def processing_thread():
                     start_buf = datetime.now()
                     for bf in pre_buffer:
                         writer.write(bf.image_annotated)
+                        writer_raw.write(bf.image)
                     logger.info(
                         f"Written {pre_buffer_len} frames from pre detection buffer"
                     )
@@ -511,6 +526,7 @@ def processing_thread():
             if not frame.has_excluded_class:
                 start_write = datetime.now()
                 writer.write(frame.image_annotated)
+                writer_raw.write(frame.image)
                 logger.debug(
                     f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
                 )
@@ -521,6 +537,7 @@ def processing_thread():
             # stop recording close video file
             if (last_detection_dur > settings.BUFFER_DUR) or frame.has_excluded_class:
                 writer.release()
+                writer_raw.release()
                 if last_detection_dur > settings.BUFFER_DUR:
                     logger.info(
                         f"Saving clip: last detection was {last_detection_dur:.3f} ago"
@@ -556,5 +573,8 @@ def processing_thread():
     if writer is not None:
         writer.release()
         logger.info("Saving clip")
+    if writer_raw is not None:
+        writer_raw.release()
+        logger.info("Saving raw clip")
 
     logger.info("Processing thread stopped")
