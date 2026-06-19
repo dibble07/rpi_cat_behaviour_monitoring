@@ -35,9 +35,11 @@ uv sync --no-dev
 1. Add content to this file:
 ```
 #!/bin/bash
+set -e
+git reset --hard
 git checkout main
 git pull
-uv sync --no-dev
+/home/rpdibble/.local/bin/uv sync --no-dev
 .venv/bin/python src/app.py
 ```
 1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
@@ -46,7 +48,8 @@ uv sync --no-dev
 ```
 [Unit]
 Description=Run startup script for cat behaviour monitor
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 User=rpdibble
