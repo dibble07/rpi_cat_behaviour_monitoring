@@ -40,7 +40,9 @@ def monitoring_thread():
         disk_write_mb = disk_io.write_bytes / (1024 * 1024)
         match SYSTEM:
             case "Linux":
-                logger.info(f"Disk write: {disk_write_mb:.0f} MB total | busy_time: {disk_io.busy_time} ms")
+                logger.info(
+                    f"Disk write: {disk_write_mb:.0f} MB total | busy_time: {disk_io.busy_time} ms"
+                )
             case "Darwin":
                 logger.info(f"Disk write: {disk_write_mb:.0f} MB total")
             case _:
