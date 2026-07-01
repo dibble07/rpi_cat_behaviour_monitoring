@@ -214,6 +214,7 @@ models/
 runs/
 sample_images/
 object_clips/
+datasets/finetune_data/
 
 # Docs
 *.pdf
