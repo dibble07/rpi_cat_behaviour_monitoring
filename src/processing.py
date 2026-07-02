@@ -130,9 +130,11 @@ class Frame:
         timestamp: datetime,
         image: np.ndarray,
         prev_frame: Optional[Frame],
+        forced_detection_run: bool,
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
+        self.forced_detection_run = forced_detection_run
         self.image_grey_blur = cv2.GaussianBlur(
             cv2.resize(
                 cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
@@ -219,7 +221,7 @@ class Frame:
 
         logger.debug(f"({self.hash}) Identifying bounding box of motion")
 
-        # identify image size and mask coordinates
+        # identify bbox of motion
         h, w = self.image.shape[:2]
         ys, xs = np.where(self.motion_mask > 0)
         x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
@@ -228,7 +230,7 @@ class Frame:
         )
 
     @property
-    def motion_bbox(self) -> Optional[list]:
+    def motion_bbox(self) -> list:
         if not hasattr(self, "_motion_bbox"):
             self._identify_motion_bbox()
         return self._motion_bbox
@@ -238,13 +240,23 @@ class Frame:
         self._object_detections = []
 
         # only run detection if motion is present
-        if self.has_motion or self.prev_object_detections:
+        if self.has_motion or self.prev_object_detections or self.forced_detection_run:
+
+            # log forced run
+            if (
+                not self.has_motion
+                and not self.prev_object_detections
+                and self.forced_detection_run
+            ):
+                logger.info(f"({self.hash}) forced object detection run")
+
             # start timing
             start = datetime.now()
             logger.debug(f"({self.hash}) Running object detection")
+            self._did_run_detection = True
 
             # crop image to motion
-            if self.motion_bbox is None:
+            if not self.has_motion:
                 image = self.image.copy()
                 offsets = np.array([0, 0, 0, 0], dtype=np.int32)
             else:
@@ -303,6 +315,7 @@ class Frame:
 
         else:
             self._has_excluded_class = False
+            self._did_run_detection = False
 
     @property
     def object_detections(self) -> List[dict]:
@@ -317,6 +330,13 @@ class Frame:
         if not hasattr(self, "_has_excluded_class"):
             self._detect_objects()
         return self._has_excluded_class
+
+    @property
+    def did_run_detection(self) -> bool:
+        # run object detection if not previously run
+        if not hasattr(self, "_did_run_detection"):
+            self._detect_objects()
+        return self._did_run_detection
 
     @property
     def image_annotated(self) -> np.ndarray:
@@ -407,6 +427,7 @@ def processing_thread():
     writer = None
     writer_raw = None
     prev_frame = None
+    frames_since_detection = 0
 
     while not shutdown_event.is_set() or not frame_queue.empty():
 
@@ -414,7 +435,12 @@ def processing_thread():
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
             start = datetime.now()
-            frame = Frame(timestamp=timestamp, image=image, prev_frame=prev_frame)
+            frame = Frame(
+                timestamp=timestamp,
+                image=image,
+                prev_frame=prev_frame,
+                forced_detection_run=frames_since_detection + 1 >= cam.fps,
+            )
         except queue.Empty:
             continue
 
@@ -513,6 +539,12 @@ def processing_thread():
                 display_queue.put_nowait(frame.image_annotated.copy())
             except queue.Full:
                 pass
+
+        # update non-detection counter
+        if frame.did_run_detection:
+            frames_since_detection = 0
+        else:
+            frames_since_detection += 1
 
         # update current frame to be previous frame
         prev_frame = frame
