@@ -13,9 +13,9 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+import utils
 from config import SYSTEM, settings
 from shared import cam, display_queue, frame_queue, shutdown_event
-import utils
 
 logger = logging.getLogger(__name__)
 

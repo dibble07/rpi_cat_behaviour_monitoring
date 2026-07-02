@@ -1,5 +1,5 @@
-import numpy as np
 import ncnn
+import numpy as np
 import torch
 
 
