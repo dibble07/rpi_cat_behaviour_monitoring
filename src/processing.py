@@ -221,22 +221,16 @@ class Frame:
 
         logger.debug(f"({self.hash}) Identifying bounding box of motion")
 
-        # return empty if no motion mask
-        if self.motion_mask is None:
-            self._motion_bbox = None
-
-
         # identify bbox of motion
-        else:
-            h, w = self.image.shape[:2]
-            ys, xs = np.where(self.motion_mask > 0)
-            x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
-            self._motion_bbox = utils.expand_bbox_from_bounds(
-                x_min, x_max, y_min, y_max, w, h, int(0.1 * h)
-            )
+        h, w = self.image.shape[:2]
+        ys, xs = np.where(self.motion_mask > 0)
+        x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
+        self._motion_bbox = utils.expand_bbox_from_bounds(
+            x_min, x_max, y_min, y_max, w, h, int(0.1 * h)
+        )
 
     @property
-    def motion_bbox(self) -> Optional[list]:
+    def motion_bbox(self) -> list:
         if not hasattr(self, "_motion_bbox"):
             self._identify_motion_bbox()
         return self._motion_bbox
@@ -246,14 +240,14 @@ class Frame:
         self._object_detections = []
 
         # only run detection if motion is present
-        if (
-            self.has_motion
-            or self.prev_object_detections
-            or self.forced_detection_run
-        ):
+        if self.has_motion or self.prev_object_detections or self.forced_detection_run:
 
             # log forced run
-            if not self.has_motion and not self.prev_object_detections and self.forced_detection_run:
+            if (
+                not self.has_motion
+                and not self.prev_object_detections
+                and self.forced_detection_run
+            ):
                 logger.info(f"({self.hash}) forced object detection run")
 
             # start timing
@@ -445,7 +439,7 @@ def processing_thread():
                 timestamp=timestamp,
                 image=image,
                 prev_frame=prev_frame,
-                forced_detection_run=frames_since_detection+1 >= cam.fps,
+                forced_detection_run=frames_since_detection + 1 >= cam.fps,
             )
         except queue.Empty:
             continue
