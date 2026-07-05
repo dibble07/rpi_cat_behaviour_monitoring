@@ -1,18 +1,9 @@
 import faulthandler
 import logging
 import os
-import queue
-import threading
-import time
 from datetime import datetime
 
-import cv2
-
-from capture import capture_thread
 from config import SYSTEM, settings
-from monitoring import monitoring_thread
-from processing import processing_thread
-from shared import display_queue, shutdown_event
 
 # prepare output directory
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
@@ -35,6 +26,17 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 faulthandler.enable()
+
+import queue
+import threading
+import time
+
+import cv2
+
+from capture import capture_thread
+from monitoring import monitoring_thread
+from processing import processing_thread
+from shared import display_queue, shutdown_event
 
 # start threads
 capture_t = threading.Thread(target=capture_thread)
