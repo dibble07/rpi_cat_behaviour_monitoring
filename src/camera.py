@@ -72,6 +72,8 @@ class Picamera2_camera:
             controls={
                 "FrameRate": self.fps,
                 "AeEnable": True,
+                "AeMeteringMode": 2,
+                "AwbEnable": True,
             },
         )
         self.cam.configure(config)
