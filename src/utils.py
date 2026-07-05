@@ -1,4 +1,16 @@
+from collections import defaultdict
+
 import torch
+
+# Map annotation colours based on class
+CLASS_COLOUR_MAP = defaultdict(
+    lambda: (255, 0, 0),
+    {
+        0: (0, 0, 255),
+        1: (0, 255, 0),
+        15: (0, 255, 0),
+    },
+)
 
 
 def get_best_device() -> torch.device:

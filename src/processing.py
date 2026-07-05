@@ -20,7 +20,6 @@ from shared import cam, display_queue, frame_queue, shutdown_event
 logger = logging.getLogger(__name__)
 
 # annotation values
-ANN_COLOUR = (0, 200, 0)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # video type
@@ -354,11 +353,12 @@ class Frame:
 
                 # unpack box coords
                 x1, y1, x2, y2 = obj["box"]
+                ann_colour = utils.CLASS_COLOUR_MAP[obj["class"]]
 
                 # draw bounding box
                 thickness = int(min(self._image_annotated.shape[:2]) / 250)
                 cv2.rectangle(
-                    self._image_annotated, (x1, y1), (x2, y2), ANN_COLOUR, thickness
+                    self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
                 )
 
                 # extract object class label/confidence and text size
@@ -368,7 +368,7 @@ class Frame:
                 # draw background rectangle for text
                 txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
                 cv2.rectangle(
-                    self._image_annotated, (x1, y1), txt_box_coords, ANN_COLOUR, -1
+                    self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
                 )
 
                 # add text
