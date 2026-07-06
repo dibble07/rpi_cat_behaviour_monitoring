@@ -19,10 +19,9 @@ from shared import cam, display_queue, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
 
-# annotation values
+# annotation font
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-# video type
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
@@ -131,6 +130,7 @@ class Frame:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.forced_detection_run = forced_detection_run
+        start = datetime.now()
         self.image_grey_blur = cv2.GaussianBlur(
             cv2.resize(
                 cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
@@ -138,9 +138,11 @@ class Frame:
             (5, 5),
             0,
         )
+        grey_blur_elapsed = (datetime.now() - start).total_seconds()
         start = datetime.now()
         self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
         elapsed = (datetime.now() - start).total_seconds()
+        logger.debug(f"({self.hash}) Blur duration: {grey_blur_elapsed*1000:.1f} ms")
         logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
         if prev_frame is None:
