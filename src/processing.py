@@ -56,8 +56,6 @@ class FFmpegWriter:
         width: int,
         height: int,
         qv: int,
-        out_width: int,
-        out_height: int,
     ):
         cmd = [
             "ffmpeg",
@@ -72,8 +70,6 @@ class FFmpegWriter:
             str(fps),
             "-i",
             "pipe:0",
-            "-vf",
-            f"scale={out_width}:{out_height}",
             "-c:v",
             "mjpeg",
             "-q:v",
@@ -81,9 +77,9 @@ class FFmpegWriter:
             "-pix_fmt",
             "yuvj420p",
             "-maxrate",
-            "2M",
+            "3M",
             "-bufsize",
-            "1M",
+            "4M",
             path,
         ]
         logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
@@ -477,8 +473,6 @@ def processing_thread():
                         cam.width,
                         cam.height,
                         settings.MJPEG_QV,
-                        settings.OUTPUT_WIDTH,
-                        settings.OUTPUT_HEIGHT,
                     )
                     writer_raw = FFmpegWriter(
                         out_raw_path,
@@ -486,8 +480,6 @@ def processing_thread():
                         cam.width,
                         cam.height,
                         settings.MJPEG_QV,
-                        settings.OUTPUT_WIDTH,
-                        settings.OUTPUT_HEIGHT,
                     )
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)
