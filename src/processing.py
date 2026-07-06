@@ -74,7 +74,7 @@ class FFmpegWriter:
             "-q:v",
             str(qv),
             "-pix_fmt",
-            "yuvj420p",
+            "yuvj422p",
             "-maxrate",
             "3M",
             "-bufsize",
