@@ -19,16 +19,15 @@ from shared import cam, display_queue, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
 
-# annotation values
-ANN_COLOUR = (0, 200, 0)
+# annotation font
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
-# video type
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
     np.zeros((cam.height, cam.width, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
+    conf=settings.CONF,
     verbose=False,
     max_det=settings.MAX_DETS,
 )
@@ -56,8 +55,6 @@ class FFmpegWriter:
         width: int,
         height: int,
         qv: int,
-        out_width: int,
-        out_height: int,
     ):
         cmd = [
             "ffmpeg",
@@ -72,18 +69,16 @@ class FFmpegWriter:
             str(fps),
             "-i",
             "pipe:0",
-            "-vf",
-            f"scale={out_width}:{out_height}",
             "-c:v",
             "mjpeg",
             "-q:v",
             str(qv),
             "-pix_fmt",
-            "yuvj420p",
+            "yuvj422p",
             "-maxrate",
-            "2M",
+            "3M",
             "-bufsize",
-            "1M",
+            "4M",
             path,
         ]
         logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
@@ -135,6 +130,7 @@ class Frame:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.forced_detection_run = forced_detection_run
+        start = datetime.now()
         self.image_grey_blur = cv2.GaussianBlur(
             cv2.resize(
                 cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
@@ -142,9 +138,11 @@ class Frame:
             (5, 5),
             0,
         )
+        grey_blur_elapsed = (datetime.now() - start).total_seconds()
         start = datetime.now()
         self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
         elapsed = (datetime.now() - start).total_seconds()
+        logger.debug(f"({self.hash}) Blur duration: {grey_blur_elapsed*1000:.1f} ms")
         logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
 
         if prev_frame is None:
@@ -278,6 +276,7 @@ class Frame:
             results = MODEL(
                 image,
                 imgsz=settings.IMGSZ,
+                conf=settings.CONF,
                 verbose=False,
                 max_det=settings.MAX_DETS,
             )[0]
@@ -354,11 +353,12 @@ class Frame:
 
                 # unpack box coords
                 x1, y1, x2, y2 = obj["box"]
+                ann_colour = utils.CLASS_COLOUR_MAP[obj["class"]]
 
                 # draw bounding box
                 thickness = int(min(self._image_annotated.shape[:2]) / 250)
                 cv2.rectangle(
-                    self._image_annotated, (x1, y1), (x2, y2), ANN_COLOUR, thickness
+                    self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
                 )
 
                 # extract object class label/confidence and text size
@@ -368,7 +368,7 @@ class Frame:
                 # draw background rectangle for text
                 txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
                 cv2.rectangle(
-                    self._image_annotated, (x1, y1), txt_box_coords, ANN_COLOUR, -1
+                    self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
                 )
 
                 # add text
@@ -475,8 +475,6 @@ def processing_thread():
                         cam.width,
                         cam.height,
                         settings.MJPEG_QV,
-                        settings.OUTPUT_WIDTH,
-                        settings.OUTPUT_HEIGHT,
                     )
                     writer_raw = FFmpegWriter(
                         out_raw_path,
@@ -484,8 +482,6 @@ def processing_thread():
                         cam.width,
                         cam.height,
                         settings.MJPEG_QV,
-                        settings.OUTPUT_WIDTH,
-                        settings.OUTPUT_HEIGHT,
                     )
                     logger.warning(f"Starting recording: {out_path}")
                     pre_buffer_len = len(pre_buffer)

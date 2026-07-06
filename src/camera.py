@@ -64,6 +64,7 @@ class Picamera2_camera:
         self.fps = settings.FPS
         self.width = settings.FRAME_WIDTH
         self.height = settings.FRAME_HEIGHT
+
         config = self.cam.create_video_configuration(
             main={
                 "size": (settings.FRAME_WIDTH, settings.FRAME_HEIGHT),
@@ -72,6 +73,9 @@ class Picamera2_camera:
             controls={
                 "FrameRate": self.fps,
                 "AeEnable": True,
+                "AeMeteringMode": 2,
+                "AwbEnable": True,
+                "HdrMode": 4,
             },
         )
         self.cam.configure(config)

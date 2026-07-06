@@ -48,4 +48,4 @@ def monitoring_thread():
             case _:
                 logger.info(f"Disk write: {disk_write_mb:.0f} MB total")
 
-        time.sleep(2)
+        time.sleep(5)
