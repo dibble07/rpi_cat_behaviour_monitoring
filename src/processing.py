@@ -28,6 +28,7 @@ MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
     np.zeros((cam.height, cam.width, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
+    conf=settings.CONF,
     verbose=False,
     max_det=settings.MAX_DETS,
 )
@@ -277,6 +278,7 @@ class Frame:
             results = MODEL(
                 image,
                 imgsz=settings.IMGSZ,
+                conf=settings.CONF,
                 verbose=False,
                 max_det=settings.MAX_DETS,
             )[0]
