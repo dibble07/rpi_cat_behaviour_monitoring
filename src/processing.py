@@ -73,11 +73,11 @@ class FFmpegWriter:
             "-q:v",
             str(qv),
             "-pix_fmt",
-            "yuvj422p",
+            "yuvj420p",
             "-maxrate",
-            "3M",
+            "5M",
             "-bufsize",
-            "4M",
+            "6M",
             path,
         ]
         logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
