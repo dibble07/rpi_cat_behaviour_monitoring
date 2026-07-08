@@ -11,3 +11,4 @@ MJPEG_QV = 7
 MODEL_PATH = "yolo26n_subclass_ncnn_model"
 OUTPUT_DIR = "object_clips"
 SAVE_RAW_VIDEO = true
+TRACK_IOU_THRESHOLD = 0.3
