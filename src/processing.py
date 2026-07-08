@@ -16,6 +16,7 @@ from ultralytics import YOLO
 import utils
 from config import SYSTEM, settings
 from shared import cam, display_queue, frame_queue, shutdown_event
+from tracking import TrackFrame, TrackManager
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,6 @@ BACK_SUB = cv2.createBackgroundSubtractorMOG2(
 # low-resolution dimensions used for motion detection
 _GREY_W = 640
 _GREY_H = 480
-_GREY_SCALE_X = 640 / cam.width
-_GREY_SCALE_Y = 480 / cam.height
 
 
 class FFmpegWriter:
@@ -125,11 +124,15 @@ class Frame:
         timestamp: datetime,
         image: np.ndarray,
         prev_frame: Optional[Frame],
+        prev_track_mask: np.ndarray,
         forced_detection_run: bool,
+        has_active_tracks: bool,
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
+        self.prev_track_mask = prev_track_mask
         self.forced_detection_run = forced_detection_run
+        self.has_active_tracks = has_active_tracks
         start = datetime.now()
         self.image_grey_blur = cv2.GaussianBlur(
             cv2.resize(
@@ -148,10 +151,8 @@ class Frame:
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
             self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
-            self.prev_object_detections = []  # type: ignore
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy()
-            self.prev_object_detections = prev_frame.object_detections.copy()
 
     def _detect_motion(self):
 
@@ -177,14 +178,12 @@ class Frame:
             if cv2.contourArea(c) < int(0.00005 * motion_mask.size):
                 cv2.drawContours(motion_mask, [c], -1, 0, -1)
 
-        # get mask of previous detections
-        prev_mask = np.zeros_like(self.image_grey_blur)
-        for o in self.prev_object_detections:
-            x1 = int(o["box"][0] * _GREY_SCALE_X)
-            y1 = int(o["box"][1] * _GREY_SCALE_Y)
-            x2 = int(o["box"][2] * _GREY_SCALE_X)
-            y2 = int(o["box"][3] * _GREY_SCALE_Y)
-            prev_mask[y1:y2, x1:x2] = 255
+        # resize previous track mask
+        prev_mask = cv2.resize(
+            self.prev_track_mask,
+            (_GREY_W, _GREY_H),
+            interpolation=cv2.INTER_NEAREST,
+        )
 
         # combine motion and previous detection masks into the next detection region
         search_mask = cv2.bitwise_or(motion_mask, prev_mask)
@@ -237,13 +236,13 @@ class Frame:
         # initialise detections output
         self._object_detections = []
 
-        # only run detection if motion is present
-        if self.has_motion or self.prev_object_detections or self.forced_detection_run:
+        # run detection if motion is present, active tracks exist, or on forced cadence
+        if self.has_motion or self.has_active_tracks or self.forced_detection_run:
 
             # log forced run
             if (
                 not self.has_motion
-                and not self.prev_object_detections
+                and not self.has_active_tracks
                 and self.forced_detection_run
             ):
                 logger.info(f"({self.hash}) forced object detection run")
@@ -285,9 +284,9 @@ class Frame:
             for r in results.boxes:
                 self._object_detections.append(
                     {
-                        "box": (
-                            r.xyxy[0].cpu().numpy().astype(np.int32) + offsets
-                        ).tolist(),
+                        "box": tuple(
+                            (r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
+                        ),
                         "conf": float(r.conf[0].item()),
                         "class": int(r.cls[0].item()),
                     }
@@ -428,6 +427,7 @@ def processing_thread():
     writer_raw = None
     prev_frame = None
     frames_since_detection = 0
+    track_manager = TrackManager()
 
     while not shutdown_event.is_set() or not frame_queue.empty():
 
@@ -439,7 +439,9 @@ def processing_thread():
                 timestamp=timestamp,
                 image=image,
                 prev_frame=prev_frame,
+                prev_track_mask=track_manager.all_tracks_mask(cam.width, cam.height),
                 forced_detection_run=frames_since_detection + 1 >= cam.fps,
+                has_active_tracks=bool(track_manager.active_tracks),
             )
         except queue.Empty:
             continue
@@ -452,13 +454,10 @@ def processing_thread():
 
                 # clear buffer
                 pre_buffer.frames.clear()
+                track_manager = TrackManager()
                 logger.info("Clearing buffer due to detection of excluded class")
 
             else:
-
-                # update latest detection timestamp
-                last_detection_time = frame.timestamp
-
                 # initialise recording and write pre buffer to video file
                 if not recording:
                     out_path = os.path.join(
@@ -499,6 +498,22 @@ def processing_thread():
                     )
                     recording = True
 
+        # update tracking state (includes aging on empty detections)
+        start_track = datetime.now()
+        track_manager.update(
+            [
+                TrackFrame(
+                    frame_hash=frame.hash,
+                    bbox=utils.Bbox(xyxy=obj["box"]),
+                    class_id=obj["class"],
+                    confidence=obj["conf"],
+                )
+                for obj in frame.object_detections
+            ]
+        )
+        track_elapsed = (datetime.now() - start_track).total_seconds()
+        logger.debug(f"({frame.hash}) Tracking duration: {track_elapsed*1000:.1f} ms")
+
         if recording:
 
             # write current frame and assess post buffer termination
@@ -510,20 +525,15 @@ def processing_thread():
                 logger.debug(
                     f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
                 )
-                last_detection_dur = (
-                    frame.timestamp - last_detection_time
-                ).total_seconds()
 
             # stop recording close video file
-            if (last_detection_dur > settings.BUFFER_DUR) or frame.has_excluded_class:
+            if not track_manager.active_tracks or frame.has_excluded_class:
                 writer.release()
                 if settings.SAVE_RAW_VIDEO:
                     writer_raw.release()
                     writer_raw = None
-                if last_detection_dur > settings.BUFFER_DUR:
-                    logger.info(
-                        f"Saving clip: last detection was {last_detection_dur:.3f} ago"
-                    )
+                if not track_manager.active_tracks:
+                    logger.info("Saving clip: all tracks expired")
                 elif frame.has_excluded_class:
                     logger.info(f"Saving clip: excluded class detected")
                 recording = False
