@@ -186,14 +186,14 @@ class Frame:
             y2 = int(o["box"][3] * _GREY_SCALE_Y)
             prev_mask[y1:y2, x1:x2] = 255
 
-        # combine motion and previous detection masks
-        mask = cv2.bitwise_or(motion_mask, prev_mask)
+        # combine motion and previous detection masks into the next detection region
+        search_mask = cv2.bitwise_or(motion_mask, prev_mask)
 
-        # store motion mask and presence flag
-        self._motion_mask = cv2.resize(
-            mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
+        # store search mask and presence flag
+        self._search_mask = cv2.resize(
+            search_mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
         )
-        self._has_motion = (cv2.countNonZero(mask) / mask.size) > 0.001
+        self._has_motion = (cv2.countNonZero(search_mask) / search_mask.size) > 0.001
 
         # log detection duration
         elapsed = (datetime.now() - start).total_seconds()
@@ -204,10 +204,10 @@ class Frame:
             logger.info(f"({self.hash}) Motion detected: {self._has_motion}")
 
     @property
-    def motion_mask(self) -> np.ndarray:
-        if not hasattr(self, "_motion_mask"):
+    def search_mask(self) -> np.ndarray:
+        if not hasattr(self, "_search_mask"):
             self._detect_motion()
-        return self._motion_mask
+        return self._search_mask
 
     @property
     def has_motion(self) -> bool:
@@ -215,23 +215,23 @@ class Frame:
             self._detect_motion()
         return self._has_motion
 
-    def _identify_motion_bbox(self):
+    def _identify_search_bbox(self):
 
-        logger.debug(f"({self.hash}) Identifying bounding box of motion")
+        logger.debug(f"({self.hash}) Identifying search bounding box")
 
-        # identify bbox of motion
+        # identify bbox of the next detection region
         h, w = self.image.shape[:2]
-        ys, xs = np.where(self.motion_mask > 0)
+        ys, xs = np.where(self.search_mask > 0)
         x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
-        self._motion_bbox = utils.expand_bbox_from_bounds(
+        self._search_bbox = utils.expand_bbox_from_bounds(
             x_min, x_max, y_min, y_max, w, h, int(0.1 * h)
         )
 
     @property
-    def motion_bbox(self) -> list:
-        if not hasattr(self, "_motion_bbox"):
-            self._identify_motion_bbox()
-        return self._motion_bbox
+    def search_bbox(self) -> list:
+        if not hasattr(self, "_search_bbox"):
+            self._identify_search_bbox()
+        return self._search_bbox
 
     def _detect_objects(self):
         # initialise detections output
@@ -253,21 +253,21 @@ class Frame:
             logger.debug(f"({self.hash}) Running object detection")
             self._did_run_detection = True
 
-            # crop image to motion
+            # crop image to the search region
             if not self.has_motion:
                 image = self.image.copy()
                 offsets = np.array([0, 0, 0, 0], dtype=np.int32)
             else:
                 image = self.image[
-                    self.motion_bbox[1] : self.motion_bbox[3],
-                    self.motion_bbox[0] : self.motion_bbox[2],
+                    self.search_bbox[1] : self.search_bbox[3],
+                    self.search_bbox[0] : self.search_bbox[2],
                 ].copy()
                 offsets = np.array(
                     [
-                        self.motion_bbox[0],
-                        self.motion_bbox[1],
-                        self.motion_bbox[0],
-                        self.motion_bbox[1],
+                        self.search_bbox[0],
+                        self.search_bbox[1],
+                        self.search_bbox[0],
+                        self.search_bbox[1],
                     ],
                     dtype=np.int32,
                 )
