@@ -46,7 +46,9 @@ class TrackFrame:
 
 
 class TrackState(Enum):
+    NEW = auto()
     ACTIVE = auto()
+    STALE = auto()
     EXPIRED = auto()
 
 
@@ -56,19 +58,17 @@ class TrackSummary:
 
     frame_count: int
     latest_frame: TrackFrame
-    latest_bbox: utils.Bbox
     latest_detection_index: int
-    trailing_miss_count: int
     state: TrackState
 
 
 class Track:
     """Ordered collection of per-frame matches for a single target."""
 
-    def __init__(self, track_id: int, frame_index: int) -> None:
+    def __init__(self, track_id: int, frame_index: int, frame: TrackFrame) -> None:
         self.track_id = track_id
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
-        self._update_summary()
+        self.append(frame)
 
     def __len__(self) -> int:
         return self.summary.frame_count
@@ -88,22 +88,10 @@ class Track:
         return self.summary.latest_frame
 
     @property
-    def latest_bbox(self) -> utils.Bbox:
-        if self.summary.latest_bbox is None:
-            raise ValueError("Track has no detections")
-        return self.summary.latest_bbox
-
-    @property
     def latest_detection_index(self) -> int:
         if self.summary.latest_detection_index is None:
             raise ValueError("Track has no detections")
         return self.summary.latest_detection_index
-
-    @property
-    def trailing_miss_count(self) -> int:
-        if self.summary.trailing_miss_count is not None:
-            return self.summary.trailing_miss_count
-        raise ValueError("Track has no detections")
 
     @property
     def state(self) -> TrackState:
@@ -115,7 +103,7 @@ class Track:
 
     def score(self, candidate: TrackFrame) -> float:
         if candidate.class_id == self.latest_frame.class_id:
-            return bbox_iou(self.latest_bbox, candidate.bbox)
+            return bbox_iou(self.latest_frame.bbox, candidate.bbox)
         else:
             return 0.0
 
@@ -125,29 +113,60 @@ class Track:
 
     def _update_summary(self) -> None:
 
-        # identify info about end of track
-        latest_frame = None
-        trailing_miss_count = 0
-        for frame in reversed(self.frames):
-            if frame is None:
-                trailing_miss_count += 1
-                continue
-            latest_frame = frame
-            break
+        # identify simple info about track
+        frame_count = len(self.frames)
 
-        # calculate state
-        state = (
-            TrackState.EXPIRED
-            if trailing_miss_count >= settings.BUFFER_DUR * settings.FPS
-            else TrackState.ACTIVE
-        )
+        # identify info about start of track
+        for i, frame in enumerate(self.frames):
+            if frame is not None:
+                first_detection_index = i
+                break
+
+        # identify info about end of track
+        for i, frame in enumerate(reversed(self.frames)):
+            if frame is not None:
+                latest_frame = frame
+                latest_detection_index = frame_count - i - 1
+                break
+
+        # calculate state transitions
+        match getattr(getattr(self, "_summary", None), "state", None):
+            case None:
+                state = TrackState.NEW
+            case TrackState.NEW:
+                ceil_FPS = int(np.ceil(settings.FPS))
+                frames_init = self.frames[
+                    first_detection_index : first_detection_index + ceil_FPS
+                ]
+                if sum([f is not None for f in frames_init]) > ceil_FPS / 2:
+                    state = TrackState.ACTIVE
+                elif first_detection_index + ceil_FPS >= frame_count:
+                    state = TrackState.NEW
+                else:
+                    state = TrackState.EXPIRED
+            case TrackState.ACTIVE:
+                state = (
+                    TrackState.ACTIVE
+                    if self.frames[-1] is not None
+                    else TrackState.STALE
+                )
+            case TrackState.STALE:
+                if self.frames[-1] is not None:
+                    state = TrackState.ACTIVE
+                elif (
+                    frame_count - latest_detection_index - 1
+                    >= settings.BUFFER_DUR * settings.FPS
+                ):
+                    state = TrackState.EXPIRED
+                else:
+                    state = TrackState.STALE
+            case TrackState.EXPIRED:
+                state = TrackState.EXPIRED
 
         self._summary = TrackSummary(
-            frame_count=len(self.frames),
+            frame_count=frame_count,
             latest_frame=latest_frame,
-            latest_bbox=latest_frame.bbox if latest_frame is not None else None,
-            latest_detection_index=len(self.frames) - trailing_miss_count - 1,
-            trailing_miss_count=trailing_miss_count,
+            latest_detection_index=latest_detection_index,
             state=state,
         )
 
@@ -171,15 +190,16 @@ class TrackManager:
                 )
 
     @property
-    def active_tracks(self) -> list[Track]:
+    def non_expired_tracks(self) -> list[Track]:
         return [track for track in self.tracks if not track.is_expired]
 
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
-        track = Track(track_id=len(self.tracks) + 1, frame_index=frame_index)
+        track = Track(
+            track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
+        )
         logger.info(
             f"({track_frame.frame_hash}) New Track: id = {track.track_id} , class = {track_frame.class_id}"
         )
-        track.append(track_frame)
         return track
 
     def update(self, candidates: List[TrackFrame]) -> None:
@@ -227,8 +247,8 @@ class TrackManager:
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
-        for track in self.active_tracks:
-            x1, y1, x2, y2 = track.latest_bbox.xyxy
+        for track in self.non_expired_tracks:
+            x1, y1, x2, y2 = track.latest_frame.bbox.xyxy
             if x2 >= x1 and y2 >= y1:
                 mask[y1 : y2 + 1, x1 : x2 + 1] = 255
 
