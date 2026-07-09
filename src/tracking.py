@@ -116,6 +116,7 @@ class Track:
         self._update_summary()
 
     def _update_summary(self) -> None:
+        prev_summary = getattr(self, "_summary", None)
 
         # identify simple info about track
         frame_count = len(self.frames)
@@ -132,7 +133,7 @@ class Track:
                 break
 
         # calculate state transitions
-        match getattr(getattr(self, "_summary", None), "state", None):
+        match getattr(prev_summary, "state", None):
             case None:
                 state = TrackState.NEW
             case TrackState.NEW:
@@ -175,6 +176,16 @@ class Track:
             state=state,
         )
 
+        # log updates
+        if prev_summary is None:
+            logger.info(
+                f"({latest_frame.frame_hash}) Track {self.track_id} created: class={latest_frame.class_id} conf={latest_frame.confidence:.2f} state={state.name[0]} "
+            )
+        else:
+            logger.info(
+                f"({latest_frame.frame_hash}) Track {self.track_id} update: conf={latest_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+            )
+
 
 class TrackManager:
     """Greedy multi-object track assignment."""
@@ -199,13 +210,9 @@ class TrackManager:
         return [track for track in self.tracks if not track.is_expired]
 
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
-        track = Track(
+        return Track(
             track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
         )
-        logger.info(
-            f"({track_frame.frame_hash}) New Track: id = {track.track_id} , class = {track_frame.class_id}"
-        )
-        return track
 
     def update(self, candidates: List[TrackFrame]) -> None:
 
