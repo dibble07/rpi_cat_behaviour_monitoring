@@ -61,6 +61,7 @@ class TrackSummary:
     first_detection_index: int
     latest_frame: TrackFrame
     latest_detection_index: int
+    history: list[Optional[tuple[int, int]]]
     state: TrackState
 
 
@@ -118,6 +119,10 @@ class Track:
 
         # identify simple info about track
         frame_count = len(self.frames)
+        history_frames = self.frames[
+            -int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS)) :
+        ]
+        history = [f.bbox.xcyc if f is not None else None for f in history_frames]
 
         # identify info about end of track
         for i, frame in enumerate(reversed(self.frames)):
@@ -166,6 +171,7 @@ class Track:
             first_detection_index=self._first_detection_index,
             latest_frame=latest_frame,
             latest_detection_index=latest_detection_index,
+            history=history,
             state=state,
         )
 

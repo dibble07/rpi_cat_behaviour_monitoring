@@ -335,6 +335,28 @@ class Frame:
             x1, y1, x2, y2 = track_frame.bbox.xyxy
             ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
 
+            # draw track history
+            thickness = int(min(self._image_annotated.shape[:2]) / 500)
+            previous_point = None
+            for point in summary.history:
+                if point is not None:
+                    cv2.circle(
+                        self._image_annotated,
+                        point,
+                        thickness * 2,
+                        ann_colour,
+                        -1,
+                    )
+                    if previous_point is not None:
+                        cv2.line(
+                            self._image_annotated,
+                            previous_point,
+                            point,
+                            ann_colour,
+                            thickness,
+                        )
+                previous_point = point
+
             # draw bounding box
             thickness = int(min(self._image_annotated.shape[:2]) / 250)
             cv2.rectangle(

@@ -71,6 +71,11 @@ class Bbox:
 
         return self._xywhn
 
+    @property
+    def xcyc(self) -> tuple[int, int]:
+        x1, y1, x2, y2 = self.xyxy
+        return (int(round((x1 + x2) / 2)), int(round((y1 + y2) / 2)))
+
 
 def get_best_device() -> torch.device:
     """Identify the best available PyTorch device"""
