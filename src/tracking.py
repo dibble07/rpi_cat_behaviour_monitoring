@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum, auto
 from typing import List, Optional
 
 import numpy as np
@@ -41,34 +42,73 @@ class TrackFrame:
     confidence: float
 
 
+class TrackState(Enum):
+    ACTIVE = auto()
+    EXPIRED = auto()
+
+
+@dataclass(slots=True)
+class TrackSummary:
+    """Cached metadata derived from all frames in a track."""
+
+    frame_count: int
+    latest_frame: TrackFrame
+    latest_bbox: utils.Bbox
+    latest_detection_index: int
+    trailing_miss_count: int
+    state: TrackState
+
+
 class Track:
     """Ordered collection of per-frame matches for a single target."""
 
     def __init__(self, track_id: int, frame_index: int) -> None:
         self.track_id = track_id
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
+        self._update_summary()
 
     def __len__(self) -> int:
-        return len(self.frames)
+        return self.summary.frame_count
 
     @property
     def frames(self) -> list[Optional[TrackFrame]]:
         return self._frames
 
     @property
+    def summary(self) -> TrackSummary:
+        return self._summary
+
+    @property
     def latest_frame(self) -> TrackFrame:
-        for frame in reversed(self.frames):
-            if frame is not None:
-                return frame
-        raise ValueError("Track has no detections")
+        if self.summary.latest_frame is None:
+            raise ValueError("Track has no detections")
+        return self.summary.latest_frame
 
     @property
     def latest_bbox(self) -> utils.Bbox:
-        return self.latest_frame.bbox
+        if self.summary.latest_bbox is None:
+            raise ValueError("Track has no detections")
+        return self.summary.latest_bbox
 
     @property
     def latest_detection_index(self) -> int:
-        return len(self.frames) - self.trailing_miss_count() - 1
+        if self.summary.latest_detection_index is None:
+            raise ValueError("Track has no detections")
+        return self.summary.latest_detection_index
+
+    @property
+    def trailing_miss_count(self) -> int:
+        if self.summary.trailing_miss_count is not None:
+            return self.summary.trailing_miss_count
+        raise ValueError("Track has no detections")
+
+    @property
+    def state(self) -> TrackState:
+        return self.summary.state
+
+    @property
+    def is_expired(self) -> bool:
+        return self.state is TrackState.EXPIRED
 
     def score(self, candidate: TrackFrame) -> float:
         if candidate.class_id == self.latest_frame.class_id:
@@ -78,15 +118,35 @@ class Track:
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self.frames.append(frame)
+        self._update_summary()
 
-    def trailing_miss_count(self) -> int:
-        for i, f in enumerate(reversed(self.frames)):
-            if f is not None:
-                return i
-        return len(self.frames)
+    def _update_summary(self) -> None:
 
-    def is_expired(self) -> bool:
-        return self.trailing_miss_count() >= settings.BUFFER_DUR * settings.FPS
+        # identify info about end of track
+        latest_frame = None
+        trailing_miss_count = 0
+        for frame in reversed(self.frames):
+            if frame is None:
+                trailing_miss_count += 1
+                continue
+            latest_frame = frame
+            break
+
+        # calculate state
+        state = (
+            TrackState.EXPIRED
+            if trailing_miss_count >= settings.BUFFER_DUR * settings.FPS
+            else TrackState.ACTIVE
+        )
+
+        self._summary = TrackSummary(
+            frame_count=len(self.frames),
+            latest_frame=latest_frame,
+            latest_bbox=latest_frame.bbox if latest_frame is not None else None,
+            latest_detection_index=len(self.frames) - trailing_miss_count - 1,
+            trailing_miss_count=trailing_miss_count,
+            state=state,
+        )
 
 
 class TrackManager:
@@ -109,7 +169,7 @@ class TrackManager:
 
     @property
     def active_tracks(self) -> list[Track]:
-        return [track for track in self.tracks if not track.is_expired()]
+        return [track for track in self.tracks if not track.is_expired]
 
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
         track = Track(track_id=len(self.tracks) + 1, frame_index=frame_index)
