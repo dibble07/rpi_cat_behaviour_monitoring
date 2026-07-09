@@ -355,27 +355,30 @@ class Frame:
                         )
                 previous_point = point
 
-            # draw bounding box
-            thickness = int(min(self._image_annotated.shape[:2]) / 250)
-            cv2.rectangle(
-                self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
-            )
+            # draw bounding box if current frame is valid
+            if summary.latest_detection_index == summary.frame_count - 1:
 
-            # extract object class label/confidence and text size
-            label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
-            (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
+                # draw bounding box
+                thickness = int(min(self._image_annotated.shape[:2]) / 250)
+                cv2.rectangle(
+                    self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
+                )
 
-            # draw background rectangle for text
-            txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
-            cv2.rectangle(
-                self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
-            )
+                # extract object class label/confidence and text size
+                label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
-            # add text
-            txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
-            cv2.putText(
-                self._image_annotated, label, txt_coords, FONT, 1, (255, 255, 255)
-            )
+                # draw background rectangle for text
+                txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
+                cv2.rectangle(
+                    self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
+                )
+
+                # add text
+                txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
+                cv2.putText(
+                    self._image_annotated, label, txt_coords, FONT, 1, (255, 255, 255)
+                )
 
         # log annotation duration
         elapsed = (datetime.now() - start).total_seconds()
