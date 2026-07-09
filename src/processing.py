@@ -126,13 +126,11 @@ class Frame:
         prev_frame: Optional[Frame],
         prev_track_mask: np.ndarray,
         forced_detection_run: bool,
-        has_non_expired_tracks: bool,
     ) -> None:
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.prev_track_mask = prev_track_mask
         self.forced_detection_run = forced_detection_run
-        self.has_non_expired_tracks = has_non_expired_tracks
         start = datetime.now()
         self.image_grey_blur = cv2.GaussianBlur(
             cv2.resize(
@@ -194,15 +192,17 @@ class Frame:
         self._search_mask = cv2.resize(
             search_mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
         )
-        self._has_motion = (cv2.countNonZero(search_mask) / search_mask.size) > 0.001
+        self._has_search_area = (
+            cv2.countNonZero(search_mask) / search_mask.size
+        ) > 0.001
 
         # log detection duration
         elapsed = (datetime.now() - start).total_seconds()
         logger.debug(f"({self.hash}) Motion detection duration: {elapsed*1000:.1f} ms")
 
         # log motion
-        if self._has_motion:
-            logger.info(f"({self.hash}) Motion detected: {self._has_motion}")
+        if self._has_search_area:
+            logger.info(f"({self.hash}) Has search area: {self._has_search_area}")
 
     @property
     def search_mask(self) -> np.ndarray:
@@ -211,10 +211,10 @@ class Frame:
         return self._search_mask
 
     @property
-    def has_motion(self) -> bool:
-        if not hasattr(self, "_has_motion"):
+    def has_search_area(self) -> bool:
+        if not hasattr(self, "_has_search_area"):
             self._detect_motion()
-        return self._has_motion
+        return self._has_search_area
 
     def _identify_search_bbox(self):
 
@@ -238,14 +238,10 @@ class Frame:
         track_frames = []
 
         # run detection if motion is present, active tracks exist, or on forced cadence
-        if self.has_motion or self.has_non_expired_tracks or self.forced_detection_run:
+        if self.has_search_area or self.forced_detection_run:
 
             # log forced run
-            if (
-                not self.has_motion
-                and not self.has_non_expired_tracks
-                and self.forced_detection_run
-            ):
+            if not self.has_search_area and self.forced_detection_run:
                 logger.info(f"({self.hash}) forced object detection run")
 
             # start timing
@@ -254,7 +250,7 @@ class Frame:
             did_run_detection = True
 
             # crop image to the search region
-            if not self.has_motion:
+            if not self.has_search_area:
                 image = self.image.copy()
                 offsets = np.array([0, 0, 0, 0], dtype=np.int32)
             else:
@@ -440,7 +436,6 @@ def processing_thread():
                 prev_frame=prev_frame,
                 prev_track_mask=track_manager.all_tracks_mask(cam.width, cam.height),
                 forced_detection_run=frames_since_detection + 1 >= cam.fps,
-                has_non_expired_tracks=bool(track_manager.non_expired_tracks),
             )
         except queue.Empty:
             continue
