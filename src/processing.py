@@ -26,7 +26,7 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 # load object detection model
 MODEL = YOLO(settings.MODEL_PATH, task="detect")
 _ = MODEL(
-    np.zeros((cam.height, cam.width, 3), dtype=np.uint8),
+    np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
     conf=settings.CONF,
     verbose=False,
@@ -190,7 +190,9 @@ class Frame:
 
         # store search mask and presence flag
         self._search_mask = cv2.resize(
-            search_mask, (cam.width, cam.height), interpolation=cv2.INTER_NEAREST
+            search_mask,
+            (settings.FRAME_WIDTH, settings.FRAME_HEIGHT),
+            interpolation=cv2.INTER_NEAREST,
         )
         self._has_search_area = (
             cv2.countNonZero(search_mask) / search_mask.size
@@ -434,8 +436,10 @@ def processing_thread():
                 timestamp=timestamp,
                 image=image,
                 prev_frame=prev_frame,
-                prev_track_mask=track_manager.all_tracks_mask(cam.width, cam.height),
-                forced_detection_run=frames_since_detection + 1 >= cam.fps,
+                prev_track_mask=track_manager.all_tracks_mask(
+                    settings.FRAME_WIDTH, settings.FRAME_HEIGHT
+                ),
+                forced_detection_run=frames_since_detection + 1 >= settings.fps,
             )
         except queue.Empty:
             continue
@@ -472,9 +476,9 @@ def processing_thread():
                     )
                     writer = FFmpegWriter(
                         out_path,
-                        cam.fps,
-                        cam.width,
-                        cam.height,
+                        settings.fps,
+                        settings.FRAME_WIDTH,
+                        settings.FRAME_HEIGHT,
                         settings.MJPEG_QV,
                     )
                     logger.warning(f"Starting recording: {out_path}")
@@ -485,9 +489,9 @@ def processing_thread():
                         )
                         writer_raw = FFmpegWriter(
                             out_raw_path,
-                            cam.fps,
-                            cam.width,
-                            cam.height,
+                            settings.fps,
+                            settings.FRAME_WIDTH,
+                            settings.FRAME_HEIGHT,
                             settings.MJPEG_QV,
                         )
                     pre_buffer_len = len(pre_buffer)
@@ -554,7 +558,7 @@ def processing_thread():
         elapsed = (datetime.now() - start).total_seconds()
         processing_fps = 1 / elapsed
         logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
-        if processing_fps < cam.fps:
+        if processing_fps < settings.fps:
             logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
 
     # cleanup
