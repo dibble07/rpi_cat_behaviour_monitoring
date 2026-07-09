@@ -342,7 +342,7 @@ class Frame:
             )
 
             # extract object class label/confidence and text size
-            label = f"{MODEL.names[track_frame.class_id]} {track_frame.confidence:.2f}"
+            label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
             (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
             # draw background rectangle for text

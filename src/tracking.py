@@ -56,7 +56,9 @@ class TrackState(Enum):
 class TrackSummary:
     """Cached metadata derived from all frames in a track."""
 
+    track_id: int
     frame_count: int
+    first_detection_index: int
     latest_frame: TrackFrame
     latest_detection_index: int
     state: TrackState
@@ -67,6 +69,7 @@ class Track:
 
     def __init__(self, track_id: int, frame_index: int, frame: TrackFrame) -> None:
         self.track_id = track_id
+        self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
         self.append(frame)
 
@@ -116,12 +119,6 @@ class Track:
         # identify simple info about track
         frame_count = len(self.frames)
 
-        # identify info about start of track
-        for i, frame in enumerate(self.frames):
-            if frame is not None:
-                first_detection_index = i
-                break
-
         # identify info about end of track
         for i, frame in enumerate(reversed(self.frames)):
             if frame is not None:
@@ -136,11 +133,11 @@ class Track:
             case TrackState.NEW:
                 ceil_FPS = int(np.ceil(settings.FPS))
                 frames_init = self.frames[
-                    first_detection_index : first_detection_index + ceil_FPS
+                    self._first_detection_index : self._first_detection_index + ceil_FPS
                 ]
                 if sum([f is not None for f in frames_init]) > ceil_FPS / 2:
                     state = TrackState.ACTIVE
-                elif first_detection_index + ceil_FPS >= frame_count:
+                elif self._first_detection_index + ceil_FPS >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
@@ -164,7 +161,9 @@ class Track:
                 state = TrackState.EXPIRED
 
         self._summary = TrackSummary(
+            track_id=self.track_id,
             frame_count=frame_count,
+            first_detection_index=self._first_detection_index,
             latest_frame=latest_frame,
             latest_detection_index=latest_detection_index,
             state=state,
