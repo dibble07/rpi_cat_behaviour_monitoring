@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional
@@ -8,6 +9,8 @@ import numpy as np
 
 import utils
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def bbox_iou(box_a: utils.Bbox, box_b: utils.Bbox) -> float:
@@ -173,6 +176,9 @@ class TrackManager:
 
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
         track = Track(track_id=len(self.tracks) + 1, frame_index=frame_index)
+        logger.info(
+            f"({track_frame.frame_hash}) New Track: id = {track.track_id} , class = {track_frame.class_id}"
+        )
         track.append(track_frame)
         return track
 
