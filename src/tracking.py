@@ -108,8 +108,16 @@ class Track:
         return self.state is TrackState.EXPIRED
 
     def score(self, candidate: TrackFrame) -> float:
-        if candidate.class_id == self.latest_frame.class_id:
-            return bbox_iou(self.latest_frame.bbox, candidate.bbox)
+        iou = bbox_iou(self.latest_frame.bbox, candidate.bbox)
+        if (
+            iou >= settings.TRACK_IOU_THRESHOLD
+            and candidate.class_id == self.latest_frame.class_id
+        ):
+            conf = candidate.confidence
+            missing_frames = self.summary.frame_count - self.latest_detection_index - 1
+            age_score = float(np.exp(-missing_frames / settings.FPS))
+            score = np.average([iou, conf, age_score], weights=[1, 0.5, 0.3])
+            return score
         else:
             return 0.0
 
@@ -278,21 +286,19 @@ class TrackManager:
         for track_index, track in enumerate(self.tracks):
             for candidate_index, candidate in enumerate(candidates):
                 score = track.score(candidate)
-                if score >= settings.TRACK_IOU_THRESHOLD:
+                if score > 0:
                     scores.append(
                         (
                             score,
-                            track.latest_detection_index,
-                            candidate.confidence,
                             track_index,
                             candidate_index,
                         )
                     )
-        scores.sort(key=lambda item: (-item[0], -item[1], -item[2]))
+        scores.sort(key=lambda item: -item[0])
 
         # greedily assign unmatched candidates to unmatched tracks
         matched_tracks, matched_candidates = set(), set()
-        for _, _, _, track_index, candidate_index in scores:
+        for _, track_index, candidate_index in scores:
             if (
                 track_index not in matched_tracks
                 and candidate_index not in matched_candidates
