@@ -123,7 +123,7 @@ class Track:
         history_frames = self.frames[
             -int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS)) :
         ]
-        history = [f.bbox.xcyc if f is not None else None for f in history_frames]
+        history = [f.bbox.cxcywh[:2] if f is not None else None for f in history_frames]
 
         # identify info about end of track
         for i, frame in enumerate(reversed(self.frames)):
