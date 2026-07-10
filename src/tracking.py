@@ -209,6 +209,14 @@ class TrackManager:
     def non_expired_tracks(self) -> list[Track]:
         return [track for track in self.tracks if not track.is_expired]
 
+    def get_track(self, track_id: int) -> Track:
+        matches = [track for track in self.tracks if track.track_id == track_id]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Expected exactly one track with id {track_id}, found {len(matches)}"
+            )
+        return matches[0]
+
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
         return Track(
             track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
