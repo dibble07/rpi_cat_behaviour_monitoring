@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "dynaconf>=3.2.12",
+    "filterpy>=1.4.5",
     "ncnn>=1.0.20260114",
     "ultralytics>=8.4.0",
 ]

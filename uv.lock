@@ -555,6 +555,17 @@ wheels = [
 ]
 
 [[package]]
+name = "filterpy"
+version = "1.4.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/1d/ac8914360460fafa1990890259b7fa5ef7ba4cd59014e782e4ab3ab144d8/filterpy-1.4.5.zip", hash = "sha256:4f2a4d39e4ea601b9ab42b2db08b5918a9538c168cff1c6895ae26646f3d73b1", size = 177985, upload-time = "2018-10-10T22:38:24.63Z" }
+
+[[package]]
 name = "flatbuffers"
 version = "25.12.19"
 source = { registry = "https://pypi.org/simple" }
@@ -2394,6 +2405,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "dynaconf" },
+    { name = "filterpy" },
     { name = "ncnn" },
     { name = "ultralytics" },
 ]
@@ -2419,6 +2431,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dynaconf", specifier = ">=3.2.12" },
+    { name = "filterpy", specifier = ">=1.4.5" },
     { name = "ncnn", specifier = ">=1.0.20260114" },
     { name = "ultralytics", specifier = ">=8.4.0" },
 ]

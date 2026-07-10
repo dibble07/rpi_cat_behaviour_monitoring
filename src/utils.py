@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Optional, Tuple
 
 import torch
 
@@ -7,10 +8,73 @@ CLASS_COLOUR_MAP = defaultdict(
     lambda: (255, 0, 0),
     {
         0: (0, 0, 255),
-        1: (0, 255, 0),
-        15: (0, 255, 0),
+        1: (0, 192, 0),
+        15: (0, 192, 0),
     },
 )
+
+
+class Bbox:
+    """Bounding box with lazy xyxy/xywhn conversion."""
+
+    def __init__(
+        self,
+        xyxy: Optional[Tuple[int, int, int, int]] = None,
+        xywhn: Optional[Tuple[float, float, float, float]] = None,
+        frame_wh: Optional[Tuple[int, int]] = None,
+    ) -> None:
+        if (xyxy is None) == (xywhn is None):
+            raise ValueError("Provide exactly one of xyxy or xywhn")
+
+        if frame_wh is not None:
+            self._frame_width, self._frame_height = frame_wh
+        else:
+            self._frame_width = self._frame_height = None
+        self._xyxy = xyxy
+        self._xywhn = xywhn
+
+    @property
+    def xyxy(self) -> tuple[int, int, int, int]:
+        if self._xyxy is None:
+            if self._frame_width is None or self._frame_height is None:
+                raise ValueError("frame_wh is required to convert xywhn to xyxy")
+
+            max_x = self._frame_width - 1
+            max_y = self._frame_height - 1
+            xc, yc, bw, bh = self._xywhn
+
+            self._xyxy = (
+                int(round((xc - bw / 2) * max_x)),
+                int(round((yc - bh / 2) * max_y)),
+                int(round((xc + bw / 2) * max_x)),
+                int(round((yc + bh / 2) * max_y)),
+            )
+
+        return self._xyxy
+
+    @property
+    def xywhn(self) -> tuple[float, float, float, float]:
+        if self._xywhn is None:
+            if self._frame_width is None or self._frame_height is None:
+                raise ValueError("frame_wh is required to convert xyxy to xywhn")
+
+            max_x = self._frame_width - 1
+            max_y = self._frame_height - 1
+            x1, y1, x2, y2 = self._xyxy
+
+            xc = ((x1 + x2) / 2) / max_x
+            yc = ((y1 + y2) / 2) / max_y
+            bw = (x2 - x1) / max_x
+            bh = (y2 - y1) / max_y
+
+            self._xywhn = (xc, yc, bw, bh)
+
+        return self._xywhn
+
+    @property
+    def cxcywh(self) -> tuple[int, int, int, int]:
+        x1, y1, x2, y2 = self.xyxy
+        return int(round((x1 + x2) / 2)), int(round((y1 + y2) / 2)), x2 - x1, y2 - y1
 
 
 def get_best_device() -> torch.device:

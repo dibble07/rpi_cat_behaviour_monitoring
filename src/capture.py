@@ -3,7 +3,7 @@ import os
 import time
 from datetime import datetime
 
-from config import SYSTEM
+from config import SYSTEM, settings
 from shared import cam, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ def capture_thread():
     logger.info("Capture thread started")
 
     # set capture constants
-    frame_period = 1 / cam.fps
+    frame_period = 1 / settings.FPS
 
     while not shutdown_event.is_set():
 
@@ -23,7 +23,7 @@ def capture_thread():
         image = cam()
 
         # shutdown if mock camera reached end of file
-        if cam._mock and image is None:
+        if image is None:
             logger.warning("Mock camera reached end of file")
             shutdown_event.set()
             continue
