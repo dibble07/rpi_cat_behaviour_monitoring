@@ -6,6 +6,7 @@ from enum import Enum, auto
 from typing import List, Optional
 
 import numpy as np
+from filterpy.kalman import KalmanFilter
 
 import utils
 from config import settings
@@ -63,6 +64,7 @@ class TrackSummary:
     latest_detection_index: int
     history: list[Optional[tuple[int, int]]]
     state: TrackState
+    estimated_bbox: utils.Bbox
 
 
 class Track:
@@ -115,8 +117,51 @@ class Track:
         self.frames.append(frame)
         self._update_summary()
 
+    def _init_kf(self, meas: np.ndarray) -> None:
+        kf = KalmanFilter(
+            dim_z=4,  # [cx, cy, w, h]
+            dim_x=8,  # [cx, cy, w, h, vcx, vcy, vw, vh]
+        )
+        kf.F = np.eye(8)
+        kf.F[:4, 4:] = np.eye(4)  # position += velocity each frame
+        kf.H = np.eye(4, 8)  # observe cx, cy, w, h directly
+        kf.R[2:, 2:] *= 10.0  # higher measurement noise on size vs position
+        kf.P[4:, 4:] *= 1000.0  # high initial uncertainty on velocity
+        kf.P *= 10.0
+        kf.Q[4:, 4:] *= 0.01  # slow velocity evolution
+        kf.x[:4] = meas  # current state
+        self._kf = kf
+
+    def _next_bbox_from_kf(self) -> utils.Bbox:
+        next_state = self._kf.F @ self._kf.x
+        cx, cy, w, h = next_state[:4].flatten()
+        return utils.Bbox(
+            xyxy=(
+                int(round(cx - w / 2)),
+                int(round(cy - h / 2)),
+                int(round(cx + w / 2)),
+                int(round(cy + h / 2)),
+            )
+        )
+
+    @property
+    def estimated_bbox(self) -> utils.Bbox:
+        return self.summary.estimated_bbox
+
     def _update_summary(self) -> None:
         prev_summary = getattr(self, "_summary", None)
+
+        # update kalman filter
+        frame_to_process = self.frames[-1]
+        if frame_to_process is not None:
+            meas = np.array(frame_to_process.bbox.cxcywh).reshape(4, 1)
+            if not hasattr(self, "_kf"):
+                self._init_kf(meas)
+            else:
+                self._kf.predict()
+                self._kf.update(meas)
+        elif hasattr(self, "_kf"):
+            self._kf.predict()
 
         # identify simple info about track
         frame_count = len(self.frames)
@@ -174,6 +219,7 @@ class Track:
             latest_detection_index=latest_detection_index,
             history=history,
             state=state,
+            estimated_bbox=self._next_bbox_from_kf(),
         )
 
         # log updates
