@@ -314,7 +314,7 @@ class TrackManager:
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
         for track in self.non_expired_tracks:
-            x1, y1, x2, y2 = track.latest_frame.bbox.xyxy
+            x1, y1, x2, y2 = track.estimated_bbox.xyxy
             if x2 >= x1 and y2 >= y1:
                 mask[y1 : y2 + 1, x1 : x2 + 1] = 255
 
