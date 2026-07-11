@@ -61,11 +61,12 @@ class TrackSummary:
     track_id: int
     frame_count: int
     first_detection_index: int
-    latest_frame: TrackFrame
     latest_detection_index: int
-    history: list[Optional[tuple[int, int]]]
+    last_frame: Optional[TrackFrame]
+    last_valid_frame: TrackFrame
     state: TrackState
     estimated_bbox: utils.Bbox
+    history: list[Optional[tuple[int, int]]]
 
 
 class Track:
@@ -81,41 +82,19 @@ class Track:
         return self.summary.frame_count
 
     @property
-    def frames(self) -> list[Optional[TrackFrame]]:
-        return self._frames
-
-    @property
     def summary(self) -> TrackSummary:
         return self._summary
 
-    @property
-    def latest_frame(self) -> TrackFrame:
-        if self.summary.latest_frame is None:
-            raise ValueError("Track has no detections")
-        return self.summary.latest_frame
-
-    @property
-    def latest_detection_index(self) -> int:
-        if self.summary.latest_detection_index is None:
-            raise ValueError("Track has no detections")
-        return self.summary.latest_detection_index
-
-    @property
-    def state(self) -> TrackState:
-        return self.summary.state
-
-    @property
-    def is_expired(self) -> bool:
-        return self.state is TrackState.EXPIRED
-
     def score(self, candidate: TrackFrame) -> float:
-        iou = bbox_iou(self.latest_frame.bbox, candidate.bbox)
+        iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
         if (
             iou >= settings.TRACK_IOU_THRESHOLD
-            and candidate.class_id == self.latest_frame.class_id
+            and candidate.class_id == self.summary.last_valid_frame.class_id
         ):
             conf = candidate.confidence
-            missing_frames = self.summary.frame_count - self.latest_detection_index - 1
+            missing_frames = (
+                self.summary.frame_count - self.summary.latest_detection_index - 1
+            )
             age_score = float(np.exp(-missing_frames / settings.FPS))
             score = np.average([iou, conf, age_score], weights=[1, 0.5, 0.3])
             return score
@@ -123,7 +102,7 @@ class Track:
             return -1.0
 
     def append(self, frame: Optional[TrackFrame]) -> None:
-        self.frames.append(frame)
+        self._frames.append(frame)
         self._update_summary()
 
     def _init_kf(self, meas: np.ndarray) -> None:
@@ -153,17 +132,13 @@ class Track:
             )
         )
 
-    @property
-    def estimated_bbox(self) -> utils.Bbox:
-        return self.summary.estimated_bbox
-
     def _update_summary(self) -> None:
         prev_summary = getattr(self, "_summary", None)
 
         # update kalman filter
-        frame_to_process = self.frames[-1]
-        if frame_to_process is not None:
-            meas = np.array(frame_to_process.bbox.cxcywh).reshape(4, 1)
+        last_frame = self._frames[-1]
+        if last_frame is not None:
+            meas = np.array(last_frame.bbox.cxcywh).reshape(4, 1)
             if not hasattr(self, "_kf"):
                 self._init_kf(meas)
             else:
@@ -173,16 +148,16 @@ class Track:
             self._kf.predict()
 
         # identify simple info about track
-        frame_count = len(self.frames)
-        history_frames = self.frames[
+        frame_count = len(self._frames)
+        history_frames = self._frames[
             -int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS)) :
         ]
         history = [f.bbox.cxcywh[:2] if f is not None else None for f in history_frames]
 
         # identify info about end of track
-        for i, frame in enumerate(reversed(self.frames)):
+        for i, frame in enumerate(reversed(self._frames)):
             if frame is not None:
-                latest_frame = frame
+                last_valid_frame = frame
                 latest_detection_index = frame_count - i - 1
                 break
 
@@ -192,7 +167,7 @@ class Track:
                 state = TrackState.NEW
             case TrackState.NEW:
                 ceil_FPS = int(np.ceil(settings.FPS))
-                frames_init = self.frames[
+                frames_init = self._frames[
                     self._first_detection_index : self._first_detection_index + ceil_FPS
                 ]
                 if sum([f is not None for f in frames_init]) > ceil_FPS / 2:
@@ -204,11 +179,11 @@ class Track:
             case TrackState.ACTIVE:
                 state = (
                     TrackState.ACTIVE
-                    if self.frames[-1] is not None
+                    if self._frames[-1] is not None
                     else TrackState.STALE
                 )
             case TrackState.STALE:
-                if self.frames[-1] is not None:
+                if self._frames[-1] is not None:
                     state = TrackState.ACTIVE
                 elif (
                     frame_count - latest_detection_index - 1
@@ -224,7 +199,8 @@ class Track:
             track_id=self.track_id,
             frame_count=frame_count,
             first_detection_index=self._first_detection_index,
-            latest_frame=latest_frame,
+            last_frame=last_frame,
+            last_valid_frame=last_valid_frame,
             latest_detection_index=latest_detection_index,
             history=history,
             state=state,
@@ -234,11 +210,11 @@ class Track:
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({latest_frame.frame_hash}) Track {self.track_id} created: class={latest_frame.class_id} conf={latest_frame.confidence:.2f} state={state.name[0]} "
+                f"({last_valid_frame.frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
             logger.info(
-                f"({latest_frame.frame_hash}) Track {self.track_id} update: conf={latest_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+                f"({last_valid_frame.frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
             )
 
 
@@ -262,7 +238,9 @@ class TrackManager:
 
     @property
     def non_expired_tracks(self) -> list[Track]:
-        return [track for track in self.tracks if not track.is_expired]
+        return [
+            track for track in self.tracks if track.summary.state != TrackState.EXPIRED
+        ]
 
     def get_track(self, track_id: int) -> Track:
         matches = [track for track in self.tracks if track.track_id == track_id]
@@ -315,7 +293,7 @@ class TrackManager:
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
         for track in self.non_expired_tracks:
-            x1, y1, x2, y2 = track.estimated_bbox.xyxy
+            x1, y1, x2, y2 = track.summary.estimated_bbox.xyxy
             if x2 >= x1 and y2 >= y1:
                 mask[y1 : y2 + 1, x1 : x2 + 1] = 255
 

@@ -327,7 +327,7 @@ class Frame:
 
         # annotate using track summaries
         for summary in track_summaries:
-            track_frame = summary.latest_frame
+            track_frame = summary.last_valid_frame
 
             # unpack box coords
             x1, y1, x2, y2 = track_frame.bbox.xyxy
