@@ -7,6 +7,7 @@ from typing import List, Optional
 
 import numpy as np
 from filterpy.kalman import KalmanFilter
+from scipy.optimize import linear_sum_assignment
 
 import utils
 from config import settings
@@ -119,7 +120,7 @@ class Track:
             score = np.average([iou, conf, age_score], weights=[1, 0.5, 0.3])
             return score
         else:
-            return 0.0
+            return -1.0
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self.frames.append(frame)
@@ -242,7 +243,7 @@ class Track:
 
 
 class TrackManager:
-    """Greedy multi-object track assignment."""
+    """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
         self.tracks: list[Track] = []
@@ -281,28 +282,22 @@ class TrackManager:
         # store length of tracks before update
         frame_index = len(self)
 
-        # score all track/candidate combinations
-        scores = []
+        # score all track/candidate combinations directly into padded matrix
+        track_count = len(self.tracks)
+        candidate_count = len(candidates)
+        padded_size = track_count + candidate_count
+        padded_scores = np.zeros((padded_size, padded_size), dtype=float)
         for track_index, track in enumerate(self.tracks):
             for candidate_index, candidate in enumerate(candidates):
-                score = track.score(candidate)
-                if score > 0:
-                    scores.append(
-                        (
-                            score,
-                            track_index,
-                            candidate_index,
-                        )
-                    )
-        scores.sort(key=lambda item: -item[0])
+                padded_scores[track_index, candidate_index] = track.score(candidate)
 
-        # greedily assign unmatched candidates to unmatched tracks
+        # assign tracks to candidates/dummies
+        row_ind, col_ind = linear_sum_assignment(padded_scores, maximize=True)
+
+        # assign matched candidates to tracks
         matched_tracks, matched_candidates = set(), set()
-        for _, track_index, candidate_index in scores:
-            if (
-                track_index not in matched_tracks
-                and candidate_index not in matched_candidates
-            ):
+        for track_index, candidate_index in zip(row_ind, col_ind):
+            if track_index < track_count and candidate_index < candidate_count:
                 self.tracks[track_index].append(candidates[candidate_index])
                 matched_tracks.add(track_index)
                 matched_candidates.add(candidate_index)

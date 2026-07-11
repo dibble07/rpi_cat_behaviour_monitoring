@@ -8,6 +8,7 @@ dependencies = [
     "dynaconf>=3.2.12",
     "filterpy>=1.4.5",
     "ncnn>=1.0.20260114",
+    "scipy>=1.16.2",
     "ultralytics>=8.4.0",
 ]
 

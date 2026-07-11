@@ -2407,6 +2407,7 @@ dependencies = [
     { name = "dynaconf" },
     { name = "filterpy" },
     { name = "ncnn" },
+    { name = "scipy" },
     { name = "ultralytics" },
 ]
 
@@ -2433,6 +2434,7 @@ requires-dist = [
     { name = "dynaconf", specifier = ">=3.2.12" },
     { name = "filterpy", specifier = ">=1.4.5" },
     { name = "ncnn", specifier = ">=1.0.20260114" },
+    { name = "scipy", specifier = ">=1.16.2" },
     { name = "ultralytics", specifier = ">=8.4.0" },
 ]
 
