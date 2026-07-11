@@ -260,12 +260,13 @@ class TrackManager:
         # store length of tracks before update
         frame_index = len(self)
 
-        # score all track/candidate combinations directly into padded matrix
-        track_count = len(self.tracks)
+        # score assignable track/candidate combinations directly into padded matrix
+        assignable_tracks = self.non_expired_tracks
+        track_count = len(assignable_tracks)
         candidate_count = len(candidates)
         padded_size = track_count + candidate_count
         padded_scores = np.zeros((padded_size, padded_size), dtype=float)
-        for track_index, track in enumerate(self.tracks):
+        for track_index, track in enumerate(assignable_tracks):
             for candidate_index, candidate in enumerate(candidates):
                 padded_scores[track_index, candidate_index] = track.score(candidate)
 
@@ -276,13 +277,14 @@ class TrackManager:
         matched_tracks, matched_candidates = set(), set()
         for track_index, candidate_index in zip(row_ind, col_ind):
             if track_index < track_count and candidate_index < candidate_count:
-                self.tracks[track_index].append(candidates[candidate_index])
-                matched_tracks.add(track_index)
+                track = assignable_tracks[track_index]
+                track.append(candidates[candidate_index])
+                matched_tracks.add(track)
                 matched_candidates.add(candidate_index)
 
         # assign blank to unmatched tracks
-        for track_index, track in enumerate(self.tracks):
-            if track_index not in matched_tracks:
+        for track in self.tracks:
+            if track not in matched_tracks:
                 track.append(None)
 
         # create new tracks for unmatched candidates
