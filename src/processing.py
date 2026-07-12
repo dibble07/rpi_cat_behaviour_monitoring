@@ -312,77 +312,95 @@ class Frame:
         return track_frames, has_excluded_class, did_run_detection
 
     @property
+    def track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_track_summaries"):
+            raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
+        return self._track_summaries
+
+    @track_summaries.setter
+    def track_summaries(self, track_summaries: List[TrackSummary]) -> None:
+        self._track_summaries = track_summaries
+
+    @property
     def image_annotated(self) -> np.ndarray:
         if not hasattr(self, "_image_annotated"):
-            raise RuntimeError(f"Image not annotated yet for frame {self.hash}")
-        return self._image_annotated
+            if not hasattr(self, "_track_summaries"):
+                raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
 
-    def annotate_from_tracks(self, track_summaries: List[TrackSummary]) -> None:
-        # start timing
-        start = datetime.now()
-        logger.debug(f"({self.hash}) Annotating image")
+            # start timing
+            start = datetime.now()
+            logger.debug(f"({self.hash}) Annotating image")
 
-        # copy image ready to be annotated
-        self._image_annotated = self.image.copy()
+            # copy image ready to be annotated
+            self._image_annotated = self.image.copy()
 
-        # annotate using track summaries
-        for summary in track_summaries:
-            track_frame = summary.last_valid_frame
+            # annotate using track summaries
+            for summary in self._track_summaries:
+                track_frame = summary.last_valid_frame
 
-            # unpack box coords
-            x1, y1, x2, y2 = track_frame.bbox.xyxy
-            ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
+                # unpack box coords
+                x1, y1, x2, y2 = track_frame.bbox.xyxy
+                ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
 
-            # draw track history
-            thickness = int(min(self._image_annotated.shape[:2]) / 500)
-            previous_point = None
-            for point in summary.history:
-                if point is not None:
-                    cv2.circle(
-                        self._image_annotated,
-                        point,
-                        thickness * 2,
-                        ann_colour,
-                        -1,
-                    )
-                    if previous_point is not None:
-                        cv2.line(
+                # draw track history
+                thickness = int(min(self._image_annotated.shape[:2]) / 500)
+                previous_point = None
+                for point in summary.history:
+                    if point is not None:
+                        cv2.circle(
                             self._image_annotated,
-                            previous_point,
                             point,
+                            thickness * 2,
                             ann_colour,
-                            thickness,
+                            -1,
                         )
-                previous_point = point
+                        if previous_point is not None:
+                            cv2.line(
+                                self._image_annotated,
+                                previous_point,
+                                point,
+                                ann_colour,
+                                thickness,
+                            )
+                    previous_point = point
 
-            # draw bounding box if current frame is valid
-            if summary.latest_detection_index == summary.frame_count - 1:
+                # draw bounding box if current frame is valid
+                if summary.latest_detection_index == summary.frame_count - 1:
 
-                # draw bounding box
-                thickness = int(min(self._image_annotated.shape[:2]) / 250)
-                cv2.rectangle(
-                    self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
-                )
+                    # draw bounding box
+                    thickness = int(min(self._image_annotated.shape[:2]) / 250)
+                    cv2.rectangle(
+                        self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
+                    )
 
-                # extract object class label/confidence and text size
-                label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
-                (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
+                    # extract object class label/confidence and text size
+                    label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
-                # draw background rectangle for text
-                txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
-                cv2.rectangle(
-                    self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
-                )
+                    # draw background rectangle for text
+                    txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
+                    cv2.rectangle(
+                        self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
+                    )
 
-                # add text
-                txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
-                cv2.putText(
-                    self._image_annotated, label, txt_coords, FONT, 1, (255, 255, 255)
-                )
+                    # add text
+                    txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
+                    cv2.putText(
+                        self._image_annotated,
+                        label,
+                        txt_coords,
+                        FONT,
+                        1,
+                        (255, 255, 255),
+                    )
 
-        # log annotation duration
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Image annotation duration: {elapsed*1000:.1f} ms")
+            # log annotation duration
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.debug(
+                f"({self.hash}) Image annotation duration: {elapsed*1000:.1f} ms"
+            )
+
+        return self._image_annotated
 
 
 class PreBuffer:
@@ -456,10 +474,8 @@ def processing_thread():
         track_elapsed = (datetime.now() - start_track).total_seconds()
         logger.debug(f"({frame.hash}) Tracking duration: {track_elapsed*1000:.1f} ms")
 
-        # annotate frame from tracking state after tracker update
-        frame.annotate_from_tracks(
-            [t.summary for t in track_manager.non_expired_tracks]
-        )
+        # store track summaries to support lazy frame annotation
+        frame.track_summaries = [t.summary for t in track_manager.non_expired_tracks]
 
         if track_frames:
 
