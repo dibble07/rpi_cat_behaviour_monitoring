@@ -213,9 +213,12 @@ class Track:
                 f"({last_valid_frame.frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
-            logger.info(
-                f"({last_valid_frame.frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
-            )
+            state_unchanged = prev_summary.state.name[0] == state.name[0]
+            log_str = f"({last_valid_frame.frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+            if state_unchanged:
+                logger.debug(log_str)
+            else:
+                logger.info(log_str)
 
 
 class TrackManager:
