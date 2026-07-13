@@ -44,8 +44,7 @@ _GREY_H = 480
 
 
 class FFmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG.
-    Remove this class once quality is confirmed working on target hardware."""
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG."""
 
     def __init__(
         self,
