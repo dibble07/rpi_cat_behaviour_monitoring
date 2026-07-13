@@ -330,6 +330,19 @@ class Frame:
             # copy image ready to be annotated
             self._image_annotated = self.image.copy()
 
+            # draw frame hash label in top-left corner
+            (txt_w, txt_h), txt_baseline = cv2.getTextSize(self.hash, FONT, 1, 1)
+            box_bot_right = (int(txt_w * 1.1), int(txt_h * 1.2 + txt_baseline))
+            cv2.rectangle(self._image_annotated, (0, 0), box_bot_right, (0, 0, 0), -1)
+            cv2.putText(
+                self._image_annotated,
+                self.hash,
+                (int(txt_w * 0.05), int(txt_h * 1.1 + txt_baseline)),
+                FONT,
+                1,
+                (255, 255, 255),
+            )
+
             # annotate using track summaries
             for summary in self._track_summaries:
                 track_frame = summary.last_valid_frame
