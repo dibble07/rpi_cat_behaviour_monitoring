@@ -65,6 +65,7 @@ class TrackSummary:
     last_frame: Optional[TrackFrame]
     last_valid_frame: TrackFrame
     state: TrackState
+    confirmed: Optional[bool]
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
 
@@ -76,6 +77,7 @@ class Track:
         self.track_id = track_id
         self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
+        self._confirmed: Optional[bool] = None
         self.append(frame)
 
     def __len__(self) -> int:
@@ -172,10 +174,12 @@ class Track:
                 ]
                 if sum([f is not None for f in frames_init]) > ceil_FPS / 2:
                     state = TrackState.ACTIVE
+                    self._confirmed = True
                 elif self._first_detection_index + ceil_FPS >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
+                    self._confirmed = False
             case TrackState.ACTIVE:
                 state = (
                     TrackState.ACTIVE
@@ -204,6 +208,7 @@ class Track:
             latest_detection_index=latest_detection_index,
             history=history,
             state=state,
+            confirmed=self._confirmed,
             estimated_bbox=self._next_bbox_from_kf(),
         )
 
