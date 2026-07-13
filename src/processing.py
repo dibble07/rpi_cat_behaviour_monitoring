@@ -541,6 +541,7 @@ def processing_thread():
             # stop recording close video file
             if not track_manager.non_expired_tracks or has_excluded_class:
                 writer.release()
+                writer = None
                 if settings.SAVE_RAW_VIDEO:
                     writer_raw.release()
                     writer_raw = None
