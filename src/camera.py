@@ -25,15 +25,36 @@ class Cv2_camera:
                 f"Camera resolution ({width} x {height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
 
+        # buffer variables for final frame when video ends
+        self._buffer_frames = int(settings.BUFFER_DUR * settings.FPS)
+        self._last_frame = None
+        self._buffer_count = 0
+
         logger.info("Camera object initialised")
 
     def __call__(self):
         # capture frame from camera
-        _, frame = self.cam.read()
+        success, frame = self.cam.read()
+
+        # handle video end with buffering
+        if not success:
+            if self._buffer_count < self._buffer_frames:
+                self._buffer_count += 1
+                logger.info(
+                    f"Buffering last frame ({self._buffer_count}/{self._buffer_frames})"
+                )
+                return self._last_frame
+            else:
+                logger.info("Buffer period expired, returning None")
+                return None
 
         # resize to settings specified resolution
         if self._resize and frame is not None:
             frame = cv2.resize(frame, (settings.FRAME_WIDTH, settings.FRAME_HEIGHT))
+
+        # store for potential buffering
+        self._buffer_count = 0
+        self._last_frame = frame
 
         logger.debug(f"Frame is of type {type(frame)}")
         return frame
