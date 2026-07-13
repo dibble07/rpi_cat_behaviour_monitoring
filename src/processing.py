@@ -460,7 +460,7 @@ def processing_thread():
                 prev_track_mask=track_manager.all_tracks_mask(
                     settings.FRAME_WIDTH, settings.FRAME_HEIGHT
                 ),
-                forced_detection_run=frames_since_detection + 1 >= settings.fps,
+                forced_detection_run=frames_since_detection + 1 >= settings.FPS,
             )
         except queue.Empty:
             continue
@@ -495,7 +495,7 @@ def processing_thread():
                     )
                     writer = FFmpegWriter(
                         out_path,
-                        settings.fps,
+                        settings.FPS,
                         settings.FRAME_WIDTH,
                         settings.FRAME_HEIGHT,
                         settings.MJPEG_QV,
@@ -508,7 +508,7 @@ def processing_thread():
                         )
                         writer_raw = FFmpegWriter(
                             out_raw_path,
-                            settings.fps,
+                            settings.FPS,
                             settings.FRAME_WIDTH,
                             settings.FRAME_HEIGHT,
                             settings.MJPEG_QV,
@@ -577,7 +577,7 @@ def processing_thread():
         elapsed = (datetime.now() - start).total_seconds()
         processing_fps = 1 / elapsed
         logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
-        if processing_fps < settings.fps:
+        if processing_fps < settings.FPS:
             logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
 
     # cleanup
