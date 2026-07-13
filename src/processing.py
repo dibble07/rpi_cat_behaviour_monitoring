@@ -6,6 +6,7 @@ import os
 import queue
 import subprocess
 import threading
+from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -16,7 +17,7 @@ from ultralytics import YOLO
 import utils
 from config import SYSTEM, settings
 from shared import cam, display_queue, frame_queue, shutdown_event
-from tracking import TrackFrame, TrackManager, TrackSummary
+from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +236,7 @@ class Frame:
             self._identify_search_bbox()
         return self._search_bbox
 
-    def detect_objects(self) -> tuple[List[TrackFrame], bool, bool]:
+    def detect_objects(self) -> tuple[List[TrackFrame], bool]:
         track_frames = []
 
         # run detection if motion is present, active tracks exist, or on forced cadence
@@ -299,16 +300,12 @@ class Frame:
                 f"({self.hash}) Object detection duration: {elapsed*1000:.1f} ms"
             )
 
-            # identify excluded classes
-            has_excluded_class = bool(detected_classes & settings.EXCLUDED_CLASSES)
-
             # log detections
             if detected_classes:
                 logger.info(f"({self.hash}) Object(s) detected: {detected_classes}")
         else:
-            has_excluded_class = False
             did_run_detection = False
-        return track_frames, has_excluded_class, did_run_detection
+        return track_frames, did_run_detection
 
     @property
     def track_summaries(self) -> List[TrackSummary]:
@@ -435,8 +432,9 @@ def processing_thread():
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
 
-    # initialise preroll buffer
+    # initialise buffers
     pre_buffer = PreBuffer(max_duration=settings.BUFFER_DUR)
+    processing_buffer: deque[Frame] = deque()
 
     # initialise state and previous frame
     recording = False
@@ -451,8 +449,8 @@ def processing_thread():
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
-            start = datetime.now()
-            frame = Frame(
+            start_capture = datetime.now()
+            frame_captured = Frame(
                 timestamp=timestamp,
                 image=image,
                 prev_frame=prev_frame,
@@ -464,103 +462,27 @@ def processing_thread():
         except queue.Empty:
             continue
 
-        logger.debug(f"({frame.hash}) Running processing")
+        logger.debug(f"({frame_captured.hash}) Running processing")
 
         # detect objects and update tracking state
-        track_frames, has_excluded_class, did_run_detection = frame.detect_objects()
+        track_frames, did_run_detection = frame_captured.detect_objects()
         start_track = datetime.now()
         track_manager.update(track_frames)
+        frame_captured.track_summaries = [
+            t.summary for t in track_manager.non_expired_tracks
+        ]
         track_elapsed = (datetime.now() - start_track).total_seconds()
-        logger.debug(f"({frame.hash}) Tracking duration: {track_elapsed*1000:.1f} ms")
+        logger.debug(
+            f"({frame_captured.hash}) Tracking duration: {track_elapsed*1000:.1f} ms"
+        )
 
-        # store track summaries to support lazy frame annotation
-        frame.track_summaries = [t.summary for t in track_manager.non_expired_tracks]
-
-        if track_frames:
-
-            if has_excluded_class:
-
-                # clear buffer
-                pre_buffer.frames.clear()
-                track_manager = TrackManager()
-                logger.info("Clearing buffer due to detection of excluded class")
-
-            else:
-                # initialise recording and write pre buffer to video file
-                if not recording:
-                    out_path = os.path.join(
-                        settings.OUTPUT_DIR,
-                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
-                    )
-                    writer = FFmpegWriter(
-                        out_path,
-                        settings.FPS,
-                        settings.FRAME_WIDTH,
-                        settings.FRAME_HEIGHT,
-                        settings.MJPEG_QV,
-                    )
-                    logger.warning(f"Starting recording: {out_path}")
-                    if settings.SAVE_RAW_VIDEO:
-                        out_raw_path = os.path.join(
-                            settings.OUTPUT_DIR,
-                            f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
-                        )
-                        writer_raw = FFmpegWriter(
-                            out_raw_path,
-                            settings.FPS,
-                            settings.FRAME_WIDTH,
-                            settings.FRAME_HEIGHT,
-                            settings.MJPEG_QV,
-                        )
-                    pre_buffer_len = len(pre_buffer)
-                    start_buf = datetime.now()
-                    for bf in pre_buffer:
-                        writer.write(bf.image_annotated)
-                        if settings.SAVE_RAW_VIDEO:
-                            writer_raw.write(bf.image)
-                    logger.info(
-                        f"Written {pre_buffer_len} frames from pre detection buffer"
-                    )
-                    logger.debug(
-                        f"({frame.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
-                    )
-                    recording = True
-
-        if recording:
-
-            # write current frame and assess post buffer termination
-            if not has_excluded_class:
-                start_write = datetime.now()
-                writer.write(frame.image_annotated)
-                if settings.SAVE_RAW_VIDEO:
-                    writer_raw.write(frame.image)
-                logger.debug(
-                    f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
-                )
-
-            # stop recording close video file
-            if not track_manager.non_expired_tracks or has_excluded_class:
-                writer.release()
-                writer = None
-                if settings.SAVE_RAW_VIDEO:
-                    writer_raw.release()
-                    writer_raw = None
-                if not track_manager.non_expired_tracks:
-                    logger.info("Saving clip: all tracks expired")
-                elif has_excluded_class:
-                    logger.info(f"Saving clip: excluded class detected")
-                recording = False
-
-        else:
-
-            # store current frame image and timestamp to rolling buffer
-            if not has_excluded_class:
-                pre_buffer.put(frame)
+        # add captured frame to processing buffer
+        processing_buffer.append(frame_captured)
 
         # send frame to display queue
         if SYSTEM == "Darwin":
             try:
-                display_queue.put_nowait(frame.image_annotated.copy())
+                display_queue.put_nowait(frame_captured.image_annotated.copy())
             except queue.Full:
                 pass
 
@@ -571,16 +493,138 @@ def processing_thread():
             frames_since_detection += 1
 
         # update current frame to be previous frame
-        prev_frame = frame
+        prev_frame = frame_captured
 
         # log processing rate
-        elapsed = (datetime.now() - start).total_seconds()
-        processing_fps = 1 / elapsed
-        logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
-        if processing_fps < settings.FPS:
-            logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
+        elapsed_capture = (datetime.now() - start_capture).total_seconds()
+        logger.debug(
+            f"({frame_captured.hash}) Processing duration: {elapsed_capture*1000:.1f} ms"
+        )
+
+        # process frames in the buffer if enough frames have been captured
+        start_recording = datetime.now()
+        while len(processing_buffer) > int(np.ceil(settings.FPS)):
+
+            # extract frame and check for excluded classes
+            frame_recording = processing_buffer.popleft()
+            track_id_recording = [t.track_id for t in frame_recording.track_summaries]
+            current_summaries_recording = [
+                track_manager.get_track(id).summary for id in track_id_recording
+            ]
+            assert all([s.confirmed is not None for s in current_summaries_recording])
+            current_confirmed_summaries_recording = [
+                s for s in current_summaries_recording if s.confirmed
+            ]
+            has_excluded_class = any(
+                s.last_valid_frame.class_id in settings.EXCLUDED_CLASSES
+                for s in current_confirmed_summaries_recording
+            )
+
+            if any(
+                s.state == TrackState.ACTIVE
+                for s in current_confirmed_summaries_recording
+            ):
+
+                if has_excluded_class:
+
+                    # clear buffers
+                    processing_buffer.clear()
+                    pre_buffer.frames.clear()
+                    track_manager = TrackManager()
+                    logger.info("Clearing buffer due to detection of excluded class")
+
+                else:
+
+                    # initialise recording and write pre buffer to video file
+                    if not recording:
+
+                        # init recordings
+                        out_path = os.path.join(
+                            settings.OUTPUT_DIR,
+                            f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                        )
+                        writer = FFmpegWriter(
+                            out_path,
+                            settings.FPS,
+                            settings.FRAME_WIDTH,
+                            settings.FRAME_HEIGHT,
+                            settings.MJPEG_QV,
+                        )
+                        logger.warning(f"Starting recording: {out_path}")
+                        if settings.SAVE_RAW_VIDEO:
+                            out_raw_path = os.path.join(
+                                settings.OUTPUT_DIR,
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
+                            )
+                            writer_raw = FFmpegWriter(
+                                out_raw_path,
+                                settings.FPS,
+                                settings.FRAME_WIDTH,
+                                settings.FRAME_HEIGHT,
+                                settings.MJPEG_QV,
+                            )
+
+                        # flush buffer
+                        pre_buffer_len = len(pre_buffer)
+                        start_buf = datetime.now()
+                        for bf in pre_buffer:
+                            writer.write(bf.image_annotated)
+                            if settings.SAVE_RAW_VIDEO:
+                                writer_raw.write(bf.image)
+                        logger.info(
+                            f"Written {pre_buffer_len} frames from pre detection buffer"
+                        )
+                        logger.debug(
+                            f"({frame_recording.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
+                        )
+
+                        recording = True
+
+            if recording:
+
+                # write current frame and assess post buffer termination
+                if not has_excluded_class:
+                    start_write = datetime.now()
+                    writer.write(frame_recording.image_annotated)
+                    if settings.SAVE_RAW_VIDEO:
+                        writer_raw.write(frame_recording.image)
+                    logger.debug(
+                        f"({frame_recording.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
+                    )
+
+                # stop recording close video file
+                if not track_manager.non_expired_tracks or has_excluded_class:
+                    writer.release()
+                    writer = None
+                    if settings.SAVE_RAW_VIDEO:
+                        writer_raw.release()
+                        writer_raw = None
+                    if not track_manager.non_expired_tracks:
+                        logger.info("Saving clip: all tracks expired")
+                    elif has_excluded_class:
+                        logger.info(f"Saving clip: excluded class detected")
+                    recording = False
+
+            else:
+
+                # store current frame image and timestamp to rolling buffer
+                if not has_excluded_class:
+                    pre_buffer.put(frame_recording)
+
+        # log recording rate
+        elapsed_recording = (datetime.now() - start_recording).total_seconds()
+        logger.debug(
+            f"({frame_captured.hash}) Recording duration: {elapsed_recording*1000:.1f} ms"
+        )
+
+        # log overall FPS
+        if (overall_fps := 1 / (elapsed_capture + elapsed_recording)) < settings.FPS:
+            logger.warning(f"Processing thread slow: {overall_fps:.1f} FPS")
 
     # cleanup
+    if processing_buffer:
+        logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
+        processing_buffer.clear()
     if writer is not None:
         writer.release()
         logger.info("Saving clip")
