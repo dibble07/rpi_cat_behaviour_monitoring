@@ -97,7 +97,7 @@ class Track:
             )
             age_score = float(np.exp(-missing_frames / settings.FPS))
             score = np.average([iou, conf, age_score], weights=[1, 0.5, 0.3])
-            return score
+            return float(score)
         else:
             return -1.0
 
