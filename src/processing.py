@@ -227,7 +227,7 @@ class Frame:
         ys, xs = np.where(self.search_mask > 0)
         x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
         self._search_bbox = utils.expand_bbox_from_bounds(
-            x_min, x_max, y_min, y_max, w, h, int(0.1 * h)
+            x_min, x_max, y_min, y_max, w, h, 0.1
         )
 
     @property

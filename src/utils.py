@@ -101,12 +101,13 @@ def expand_bbox_from_bounds(
     y_max: int,
     image_width: int,
     image_height: int,
-    pad: int,
+    pad: float,
     target_aspect_ratio: Optional[float] = None,
 ) -> list[int]:
     """Expand a bbox with padding and enforce frame aspect ratio."""
 
     # identify initial padded bounding box
+    pad = int(pad * max(image_width, image_height))
     y1, y2 = max(0, y_min - pad), min(image_height - 1, y_max + pad)
     x1, x2 = max(0, x_min - pad), min(image_width - 1, x_max + pad)
 
