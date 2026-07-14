@@ -102,6 +102,7 @@ def expand_bbox_from_bounds(
     image_width: int,
     image_height: int,
     pad: int,
+    target_aspect_ratio: Optional[float] = None,
 ) -> list[int]:
     """Expand a bbox with padding and enforce frame aspect ratio."""
 
@@ -112,7 +113,11 @@ def expand_bbox_from_bounds(
     # calculate current and target aspect ratio
     box_h = y2 - y1 + 1
     box_w = x2 - x1 + 1
-    target_ar = image_width / image_height
+    target_ar = (
+        target_aspect_ratio
+        if target_aspect_ratio is not None
+        else image_width / image_height
+    )
     box_ar = box_w / box_h
 
     # calculate extra pixels needed and space either side
