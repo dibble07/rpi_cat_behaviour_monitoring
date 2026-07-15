@@ -21,15 +21,15 @@ def monitoring_thread():
 
         # memory usage
         rss = process.memory_info().rss / (1024 * 1024)
-        logger.info(f"Memory: {rss:.0f} MB")
+        logger.debug(f"Memory: {rss:.0f} MB")
 
         # CPU usage
         proc_cpu = process.cpu_percent(interval=None)
-        logger.info(f"ProcCPU: {proc_cpu:.1f}%")
+        logger.debug(f"ProcCPU: {proc_cpu:.1f}%")
 
         # thread counts
         num_threads = process.num_threads()
-        logger.info(f"Threads:{num_threads}")
+        logger.debug(f"Threads:{num_threads}")
 
         # queue size
         q_len = frame_queue.qsize()
@@ -40,12 +40,12 @@ def monitoring_thread():
         disk_write_mb = disk_io.write_bytes / (1024 * 1024)
         match SYSTEM:
             case "Linux":
-                logger.info(
+                logger.debug(
                     f"Disk write: {disk_write_mb:.0f} MB total | busy_time: {disk_io.busy_time} ms"
                 )
             case "Darwin":
-                logger.info(f"Disk write: {disk_write_mb:.0f} MB total")
+                logger.debug(f"Disk write: {disk_write_mb:.0f} MB total")
             case _:
-                logger.info(f"Disk write: {disk_write_mb:.0f} MB total")
+                logger.debug(f"Disk write: {disk_write_mb:.0f} MB total")
 
         time.sleep(settings.MONITORING_FREQ)
