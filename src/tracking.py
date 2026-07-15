@@ -3,16 +3,53 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
+import onnxruntime as ort
+import torch
 from filterpy.kalman import KalmanFilter
+from PIL import Image
 from scipy.optimize import linear_sum_assignment
+from torchvision import models
 
 import utils
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+_EMBEDDING_IMGSZ = 320
+_EMBEDDING_MODEL_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "models"
+    / "mobilenetv3_large_embeddings_onnx_model"
+    / "model.onnx"
+)
+_EMBEDDING_PREPROCESS = models.MobileNet_V3_Large_Weights.DEFAULT.transforms(
+    crop_size=_EMBEDDING_IMGSZ,
+    resize_size=_EMBEDDING_IMGSZ,
+)
+_embedding_session: ort.InferenceSession = ort.InferenceSession(
+    str(_EMBEDDING_MODEL_PATH), providers=["CPUExecutionProvider"]
+)
+_embedding_input_name = _embedding_session.get_inputs()[0].name
+
+
+def embed_image(image_np: np.ndarray) -> np.ndarray:
+    """Generate an L2-normalized embedding for an RGB image array using cached ONNX session."""
+
+    image_np = np.asarray(image_np, dtype=np.uint8)
+
+    tensor = (
+        _EMBEDDING_PREPROCESS(Image.fromarray(image_np)).unsqueeze(0).to("cpu").half()
+    )
+    embedding = _embedding_session.run(None, {_embedding_input_name: tensor.numpy()})[0]
+    embedding = embedding.astype(np.float32)
+    denom = np.linalg.norm(embedding, ord=2, axis=1, keepdims=True)
+    embedding = embedding / np.clip(denom, 1e-12, None)
+    return embedding[0]
 
 
 def bbox_iou(box_a: utils.Bbox, box_b: utils.Bbox) -> float:
