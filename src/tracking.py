@@ -104,12 +104,7 @@ class TrackFrame:
     @property
     def roi_embedding(self) -> np.ndarray:
         if self._roi_embedding is None:
-            start = datetime.now()
             self._roi_embedding = embed_image(self.roi)
-            elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(
-                f"({self.frame_hash}) ROI embedding duration: {elapsed*1000:.1f} ms"
-            )
         return self._roi_embedding
 
 
