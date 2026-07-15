@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum, auto
+from enum import IntEnum, auto
 from pathlib import Path
 from typing import List, Optional
 
@@ -113,7 +113,7 @@ class TrackFrame:
         return self._roi_embedding
 
 
-class TrackState(Enum):
+class TrackState(IntEnum):
     NEW = auto()
     ACTIVE = auto()
     STALE = auto()
@@ -318,7 +318,7 @@ class TrackManager:
     @property
     def non_expired_tracks(self) -> list[Track]:
         return [
-            track for track in self.tracks if track.summary.state != TrackState.EXPIRED
+            track for track in self.tracks if track.summary.state < TrackState.EXPIRED
         ]
 
     def get_track(self, track_id: int) -> Track:

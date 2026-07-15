@@ -345,7 +345,9 @@ class Frame:
             )
 
             # annotate using track summaries
-            for summary in self._track_summaries:
+            for summary in sorted(
+                self._track_summaries, key=lambda s: (s.state, s.track_id), reverse=True
+            ):
                 track_frame = summary.last_valid_frame
 
                 # unpack box coords
