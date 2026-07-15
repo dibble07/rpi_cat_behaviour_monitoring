@@ -30,6 +30,7 @@ _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
     conf=settings.CONF,
+    iou=settings.NMS_IOU_THRESHOLD,
     verbose=False,
     max_det=settings.MAX_DETS,
 )
@@ -275,6 +276,7 @@ class Frame:
                 image,
                 imgsz=settings.IMGSZ,
                 conf=settings.CONF,
+                iou=settings.NMS_IOU_THRESHOLD,
                 verbose=False,
                 max_det=settings.MAX_DETS,
             )[0]
