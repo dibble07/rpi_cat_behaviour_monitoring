@@ -451,6 +451,7 @@ def processing_thread():
     # initialise buffers
     pre_buffer = PreBuffer(max_duration=settings.BUFFER_DUR)
     processing_buffer: deque[Frame] = deque()
+    replay_buffer: deque[tuple[datetime, np.ndarray]] = deque()
 
     # initialise state and previous frame
     recording = False
@@ -460,11 +461,15 @@ def processing_thread():
     frames_since_detection = 0
     track_manager = TrackManager()
 
-    while not shutdown_event.is_set() or not frame_queue.empty():
+    while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
 
         # get frame from capture queue
         try:
-            timestamp, image = frame_queue.get(timeout=0.1)
+            if replay_buffer:
+                timestamp, image = replay_buffer.popleft()
+                logger.debug("Processing replay frame")
+            else:
+                timestamp, image = frame_queue.get(timeout=0.1)
             start_capture = datetime.now()
             frame_captured = Frame(
                 timestamp=timestamp,
@@ -617,6 +622,24 @@ def processing_thread():
                         writer_raw = None
                     if not track_manager.non_expired_tracks:
                         logger.info("Saving clip: all tracks expired")
+                        replayed = len(processing_buffer)
+                        if replayed:
+                            replayed = len(processing_buffer)
+                            while processing_buffer:
+                                frame_replay = processing_buffer.popleft()
+                                replay_buffer.append(
+                                    (frame_replay.timestamp, frame_replay.image.copy())
+                                )
+                            logger.info(
+                                f"Queued {replayed} delayed frame(s) for replay"
+                            )
+                            pre_buffer.frames.clear()
+                            track_manager = TrackManager()
+                            prev_frame = None
+                            frames_since_detection = 0
+                            logger.info(
+                                "Reset processing state before replaying delayed frames"
+                            )
                     elif has_excluded_class:
                         logger.info(f"Saving clip: excluded class detected")
                     recording = False
