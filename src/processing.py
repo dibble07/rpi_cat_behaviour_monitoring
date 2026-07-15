@@ -287,6 +287,7 @@ class Frame:
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
+                        image=self.image,
                         bbox=utils.Bbox(xyxy=bbox),
                         class_id=class_id,
                         confidence=float(r.conf[0].item()),

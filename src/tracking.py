@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
 import onnxruntime as ort
-import torch
 from filterpy.kalman import KalmanFilter
 from PIL import Image
 from scipy.optimize import linear_sum_assignment
@@ -79,9 +79,38 @@ class TrackFrame:
     """Detection snapshot used by the tracker."""
 
     frame_hash: str
+    image: np.ndarray
     bbox: utils.Bbox
     class_id: int
     confidence: float
+    roi: np.ndarray = field(init=False, repr=False)
+    _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        h, w = self.image.shape[:2]
+        x1, y1, x2, y2 = self.bbox.xyxy
+        x1, y1, x2, y2 = utils.expand_bbox_from_bounds(
+            x_min=x1,
+            x_max=x2,
+            y_min=y1,
+            y_max=y2,
+            image_width=w,
+            image_height=h,
+            pad=0,
+            target_aspect_ratio=1.0,
+        )
+        self.roi = self.image[y1 : y2 + 1, x1 : x2 + 1].copy()
+
+    @property
+    def roi_embedding(self) -> np.ndarray:
+        if self._roi_embedding is None:
+            start = datetime.now()
+            self._roi_embedding = embed_image(self.roi)
+            elapsed = (datetime.now() - start).total_seconds()
+            logger.debug(
+                f"({self.frame_hash}) ROI embedding duration: {elapsed*1000:.1f} ms"
+            )
+        return self._roi_embedding
 
 
 class TrackState(Enum):
@@ -131,11 +160,16 @@ class Track:
             and candidate.class_id == self.summary.last_valid_frame.class_id
         ):
             conf = candidate.confidence
+            visual = (
+                self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
+            )
             missing_frames = (
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
             age_score = float(np.exp(-missing_frames / settings.FPS))
-            score = np.average([iou, conf, age_score], weights=[1, 0.5, 0.3])
+            score = np.average(
+                [iou, conf, visual, age_score], weights=[1, 0.3, 0.3, 0.2]
+            )
             return float(score)
         else:
             return -1.0
