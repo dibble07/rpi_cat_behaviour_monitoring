@@ -330,9 +330,11 @@ class TrackManager:
         return matches[0]
 
     def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
-        return Track(
+        track = Track(
             track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
         )
+        logger.debug(f"New Track: track={track.track_id}")
+        return track
 
     def update(self, candidates: List[TrackFrame]) -> None:
 
@@ -360,11 +362,15 @@ class TrackManager:
                 track.append(candidates[candidate_index])
                 matched_tracks.add(track)
                 matched_candidates.add(candidate_index)
+                logger.debug(
+                    f"Track match: track={track.track_id} candidate={candidate_index} score={padded_scores[track_index, candidate_index]:.3f}"
+                )
 
         # assign blank to unmatched tracks
         for track in self.tracks:
             if track not in matched_tracks:
                 track.append(None)
+                logger.debug(f"Track no match: track={track.track_id}")
 
         # create new tracks for unmatched candidates
         for candidate_index, candidate in enumerate(candidates):
