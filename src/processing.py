@@ -80,7 +80,7 @@ class FFmpegWriter:
             "6M",
             path,
         ]
-        logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
+        logger.debug(f"FFmpegWriter cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
