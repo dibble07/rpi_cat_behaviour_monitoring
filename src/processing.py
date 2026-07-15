@@ -205,7 +205,7 @@ class Frame:
 
         # log motion
         if self._has_search_area:
-            logger.info(f"({self.hash}) Has search area: {self._has_search_area}")
+            logger.debug(f"({self.hash}) Has search area: {self._has_search_area}")
 
     @property
     def search_mask(self) -> np.ndarray:
@@ -245,7 +245,7 @@ class Frame:
 
             # log forced run
             if not self.has_search_area and self.forced_detection_run:
-                logger.info(f"({self.hash}) forced object detection run")
+                logger.debug(f"({self.hash}) Forced object detection run")
 
             # start timing
             start = datetime.now()
@@ -305,7 +305,7 @@ class Frame:
 
             # log detections
             if detected_classes:
-                logger.info(f"({self.hash}) Object(s) detected: {detected_classes}")
+                logger.debug(f"({self.hash}) Object(s) detected: {detected_classes}")
         else:
             did_run_detection = False
         return track_frames, did_run_detection
