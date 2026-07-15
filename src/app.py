@@ -9,7 +9,7 @@ from config import SYSTEM, settings
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=settings.LOG_LEVEL,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[

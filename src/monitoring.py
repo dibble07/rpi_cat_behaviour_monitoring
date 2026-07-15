@@ -4,7 +4,7 @@ import time
 
 import psutil
 
-from config import SYSTEM
+from config import SYSTEM, settings
 from shared import frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
@@ -48,4 +48,4 @@ def monitoring_thread():
             case _:
                 logger.info(f"Disk write: {disk_write_mb:.0f} MB total")
 
-        time.sleep(5)
+        time.sleep(settings.MONITORING_FREQ)
