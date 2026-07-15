@@ -243,7 +243,13 @@ class Track:
                 frames_init = self._frames[
                     self._first_detection_index : self._first_detection_index + ceil_FPS
                 ]
-                if sum([f is not None for f in frames_init]) > ceil_FPS / 2:
+                if sum([f is not None for f in frames_init]) > ceil_FPS / 2 and any(
+                    [
+                        f.confidence >= settings.TRACK_NEW_TRACK_CONF_THRESHOLD
+                        for f in frames_init
+                        if f
+                    ]
+                ):
                     state = TrackState.ACTIVE
                     self._confirmed = True
                 elif self._first_detection_index + ceil_FPS >= frame_count:
