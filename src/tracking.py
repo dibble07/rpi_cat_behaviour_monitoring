@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 _EMBEDDING_IMGSZ = 320
-_EMBEDDING_PREPROCESS = models.MobileNet_V3_Large_Weights.DEFAULT.transforms(
+_EMBEDDING_PREPROCESS = models.MobileNet_V3_Small_Weights.DEFAULT.transforms(
     crop_size=_EMBEDDING_IMGSZ,
     resize_size=_EMBEDDING_IMGSZ,
 )
