@@ -3,6 +3,7 @@ import os
 import time
 from datetime import datetime
 
+import utils
 from config import SYSTEM, settings
 from shared import cam, frame_queue, shutdown_event
 
@@ -32,9 +33,8 @@ def capture_thread() -> None:
         frame_queue.put((timestamp, image))
 
         # maintain camera frame rate
-        elapsed = (datetime.now() - timestamp).total_seconds()
+        elapsed = utils.log_timing(logger, "Capture", timestamp)
         delay = frame_period - elapsed
-        logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
         if delay > 0:
             logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms")
             time.sleep(delay)

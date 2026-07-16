@@ -1,7 +1,20 @@
+import logging
 from collections import defaultdict
+from datetime import datetime
 from typing import Optional, Tuple
 
 import torch
+
+
+def log_timing(
+    logger: logging.Logger, task: str, start_time: datetime, frame_hash: str = ""
+) -> float:
+    """Log task duration in milliseconds with optional frame hash context."""
+    elapsed_sec = (datetime.now() - start_time).total_seconds()
+    frame_hash_str = f"({frame_hash}) " if frame_hash else ""
+    logger.debug(f"{frame_hash_str}{task} duration: {elapsed_sec * 1000:.1f} ms")
+    return elapsed_sec
+
 
 # Map annotation colours based on class
 CLASS_COLOUR_MAP = defaultdict(

@@ -140,12 +140,8 @@ class Frame:
             (5, 5),
             0,
         )
-        grey_blur_elapsed = (datetime.now() - start).total_seconds()
-        start = datetime.now()
         self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Blur duration: {grey_blur_elapsed*1000:.1f} ms")
-        logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
+        utils.log_timing(logger, "Blur and hash", start, self.hash)
 
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
@@ -200,8 +196,7 @@ class Frame:
         ) > 0.001
 
         # log detection duration
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Motion detection duration: {elapsed*1000:.1f} ms")
+        utils.log_timing(logger, "Motion detection", start, self.hash)
 
         # log motion
         if self._has_search_area:
@@ -298,10 +293,7 @@ class Frame:
                 detected_classes.add(class_id)
 
             # log detection duration
-            elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(
-                f"({self.hash}) Object detection duration: {elapsed*1000:.1f} ms"
-            )
+            utils.log_timing(logger, "Object detection", start, self.hash)
 
             # log detections
             if detected_classes:
@@ -409,10 +401,7 @@ class Frame:
                     )
 
             # log annotation duration
-            elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(
-                f"({self.hash}) Image annotation duration: {elapsed*1000:.1f} ms"
-            )
+            utils.log_timing(logger, "Image annotation", start, self.hash)
 
         return self._image_annotated
 
@@ -495,10 +484,7 @@ def processing_thread():
         frame_captured.track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
         ]
-        track_elapsed = (datetime.now() - start_track).total_seconds()
-        logger.debug(
-            f"({frame_captured.hash}) Tracking duration: {track_elapsed*1000:.1f} ms"
-        )
+        utils.log_timing(logger, "Tracking", start_track, frame_captured.hash)
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)
@@ -520,9 +506,8 @@ def processing_thread():
         prev_frame = frame_captured
 
         # log processing rate
-        elapsed_capture = (datetime.now() - start_capture).total_seconds()
-        logger.debug(
-            f"({frame_captured.hash}) Processing duration: {elapsed_capture*1000:.1f} ms"
+        elapsed_capture = utils.log_timing(
+            logger, "Processing", start_capture, frame_captured.hash
         )
 
         # process frames in the buffer if enough frames have been captured
@@ -598,8 +583,8 @@ def processing_thread():
                         logger.info(
                             f"Written {pre_buffer_len} frames from pre detection buffer"
                         )
-                        logger.debug(
-                            f"({frame_recording.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
+                        utils.log_timing(
+                            logger, "Buffer writing", start_buf, frame_recording.hash
                         )
 
                         recording = True
@@ -612,8 +597,11 @@ def processing_thread():
                     writer.write(frame_recording.image_annotated)
                     if settings.SAVE_RAW_VIDEO:
                         writer_raw.write(frame_recording.image)
-                    logger.debug(
-                        f"({frame_recording.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
+                    utils.log_timing(
+                        logger,
+                        "Current frame writing",
+                        start_write,
+                        frame_recording.hash,
                     )
 
                 # stop recording close video file
@@ -654,9 +642,8 @@ def processing_thread():
                     pre_buffer.put(frame_recording)
 
         # log recording rate
-        elapsed_recording = (datetime.now() - start_recording).total_seconds()
-        logger.debug(
-            f"({frame_captured.hash}) Recording duration: {elapsed_recording*1000:.1f} ms"
+        elapsed_recording = utils.log_timing(
+            logger, "Recording", start_recording, frame_captured.hash
         )
 
         # log overall FPS
