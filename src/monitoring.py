@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 process = psutil.Process(os.getpid())
 
 
-def monitoring_thread():
-
+def monitoring_thread() -> None:
+    """Monitor system resources and frame queue status."""
     # prepare percent sampling
     psutil.cpu_percent(percpu=True)
     process.cpu_percent()

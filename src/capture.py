@@ -9,7 +9,7 @@ from shared import cam, frame_queue, shutdown_event
 logger = logging.getLogger(__name__)
 
 
-def capture_thread():
+def capture_thread() -> None:
     """Continuously capture camera frames and add to queue"""
     logger.info("Capture thread started")
 
@@ -22,9 +22,9 @@ def capture_thread():
         timestamp = datetime.now()
         image = cam()
 
-        # shutdown if mock camera reached end of file
+        # shutdown if camera source ended (can occur with video capture or device errors)
         if image is None:
-            logger.warning("Mock camera reached end of file")
+            logger.warning("Camera source ended, shutting down capture thread")
             shutdown_event.set()
             continue
 

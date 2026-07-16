@@ -155,8 +155,8 @@ class Frame:
                 np.uint8
             )
 
-    def _detect_motion(self):
-
+    def _identify_search_area(self):
+        """Identify search area via frame differencing, background subtraction and previous tracks."""
         # start timing
         start = datetime.now()
         logger.debug(f"({self.hash}) Running motion detection")
@@ -180,14 +180,14 @@ class Frame:
                 cv2.drawContours(motion_mask, [c], -1, (0.0,), -1)
 
         # resize previous track mask
-        prev_mask = cv2.resize(
+        track_mask = cv2.resize(
             self.prev_track_mask,
             (_GREY_W, _GREY_H),
             interpolation=cv2.INTER_NEAREST,
         )
 
         # combine motion and previous detection masks into the next detection region
-        search_mask = cv2.bitwise_or(motion_mask, prev_mask)
+        search_mask = cv2.bitwise_or(motion_mask, track_mask)
 
         # store search mask and presence flag
         self._search_mask = cv2.resize(
@@ -210,13 +210,13 @@ class Frame:
     @property
     def search_mask(self) -> np.ndarray:
         if not hasattr(self, "_search_mask"):
-            self._detect_motion()
+            self._identify_search_area()
         return self._search_mask
 
     @property
     def has_search_area(self) -> bool:
         if not hasattr(self, "_has_search_area"):
-            self._detect_motion()
+            self._identify_search_area()
         return self._has_search_area
 
     def _identify_search_bbox(self):
@@ -436,7 +436,8 @@ class PreBuffer:
     def _sort(self):
         self.frames.sort(key=lambda x: x.timestamp)
 
-    def check_duration(self, time):
+    def check_duration(self, time: datetime) -> None:
+        """Remove frames older than BUFFER_DUR seconds."""
         min_time = time - timedelta(seconds=settings.BUFFER_DUR)
         self.frames = [x for x in self.frames if x.timestamp >= min_time]
         self._sort()

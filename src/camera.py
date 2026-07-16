@@ -1,8 +1,9 @@
 import logging
 import os
-from typing import Union
+from typing import Optional, Union
 
 import cv2
+import numpy as np
 
 from config import SYSTEM, settings
 
@@ -32,7 +33,7 @@ class Cv2_camera:
 
         logger.info("Camera object initialised")
 
-    def __call__(self):
+    def __call__(self) -> Optional[np.ndarray]:
         # capture frame from camera
         success, frame = self.cam.read()
 
@@ -89,7 +90,7 @@ class Picamera2_camera:
 
         logger.info("Camera object initialised")
 
-    def __call__(self):
+    def __call__(self) -> np.ndarray:
         frame = self.cam.capture_array()[..., :3]
         logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
         return frame
