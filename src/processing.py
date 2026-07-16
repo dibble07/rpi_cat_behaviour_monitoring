@@ -436,6 +436,20 @@ class PreBuffer:
         self.check_duration(frame.timestamp)
 
 
+def _release_writers(
+    wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
+) -> tuple[None, None]:
+    """Release video writers if not None, with optional logging."""
+    log_msg = f": {log_msg}" if log_msg else ""
+    if wtr is not None:
+        wtr.release()
+        logger.info(f"Saving clip{log_msg}")
+    if wtr_r is not None:
+        wtr_r.release()
+        logger.info(f"Saving raw clip{log_msg}")
+    return None, None
+
+
 def processing_thread():
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
@@ -606,13 +620,16 @@ def processing_thread():
 
                 # stop recording close video file
                 if not track_manager.non_expired_tracks or has_excluded_class:
-                    writer.release()
-                    writer = None
-                    if settings.SAVE_RAW_VIDEO:
-                        writer_raw.release()
-                        writer_raw = None
                     if not track_manager.non_expired_tracks:
-                        logger.info("Saving clip: all tracks expired")
+                        writer, writer_raw = _release_writers(
+                            writer, writer_raw, "all tracks expired"
+                        )
+                    elif has_excluded_class:
+                        writer, writer_raw = _release_writers(
+                            writer, writer_raw, "excluded class detected"
+                        )
+
+                    if not track_manager.non_expired_tracks:
                         replayed = len(processing_buffer)
                         if replayed:
                             replayed = len(processing_buffer)
@@ -631,8 +648,6 @@ def processing_thread():
                             logger.info(
                                 "Reset processing state before replaying delayed frames"
                             )
-                    elif has_excluded_class:
-                        logger.info(f"Saving clip: excluded class detected")
                     recording = False
 
             else:
@@ -654,11 +669,6 @@ def processing_thread():
     if processing_buffer:
         logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
         processing_buffer.clear()
-    if writer is not None:
-        writer.release()
-        logger.info("Saving clip")
-    if writer_raw is not None:
-        writer_raw.release()
-        logger.info("Saving raw clip")
+    writer, writer_raw = _release_writers(writer, writer_raw)
 
     logger.info("Processing thread stopped")
