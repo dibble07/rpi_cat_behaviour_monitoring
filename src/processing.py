@@ -530,9 +530,9 @@ def processing_thread():
 
             # extract frame and check for excluded classes
             frame_recording = processing_buffer.popleft()
-            track_id_recording = [t.track_id for t in frame_recording.track_summaries]
             current_summaries_recording = [
-                track_manager.get_track(id).summary for id in track_id_recording
+                track_manager.get_track(t.track_id).summary
+                for t in frame_recording.track_summaries
             ]
             assert all([s.confirmed is not None for s in current_summaries_recording])
             current_confirmed_summaries_recording = [
@@ -632,7 +632,6 @@ def processing_thread():
                     if not track_manager.non_expired_tracks:
                         replayed = len(processing_buffer)
                         if replayed:
-                            replayed = len(processing_buffer)
                             while processing_buffer:
                                 frame_replay = processing_buffer.popleft()
                                 replay_buffer.append(
