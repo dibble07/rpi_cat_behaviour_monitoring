@@ -3,13 +3,14 @@ import os
 import time
 from datetime import datetime
 
+import utils
 from config import SYSTEM, settings
 from shared import cam, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
 
 
-def capture_thread():
+def capture_thread() -> None:
     """Continuously capture camera frames and add to queue"""
     logger.info("Capture thread started")
 
@@ -22,9 +23,9 @@ def capture_thread():
         timestamp = datetime.now()
         image = cam()
 
-        # shutdown if mock camera reached end of file
+        # shutdown if camera source ended (can occur with video capture or device errors)
         if image is None:
-            logger.warning("Mock camera reached end of file")
+            logger.warning("Camera source ended, shutting down capture thread")
             shutdown_event.set()
             continue
 
@@ -32,9 +33,8 @@ def capture_thread():
         frame_queue.put((timestamp, image))
 
         # maintain camera frame rate
-        elapsed = (datetime.now() - timestamp).total_seconds()
+        elapsed = utils.log_timing(logger, "Capture", timestamp)
         delay = frame_period - elapsed
-        logger.debug(f"Capture duration: {elapsed*1000:.1f} ms")
         if delay > 0:
             logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms")
             time.sleep(delay)

@@ -8,6 +8,8 @@ dependencies = [
     "dynaconf>=3.2.12",
     "filterpy>=1.4.5",
     "ncnn>=1.0.20260114",
+    "onnxruntime>=1.27.0",
+    "scipy>=1.16.2",
     "ultralytics>=8.4.0",
 ]
 
@@ -21,6 +23,8 @@ dev = [
     "jupyter>=1.1.1",
     "mnn>=3.4.1",
     "mypy==1.19.1",
+    "onnx>=1.22.0",
+    "onnxscript>=0.7.1",
     "pandas>=2.3.3",
     "pnnx>=20260112",
     "pre-commit==4.5.0",

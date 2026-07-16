@@ -6,6 +6,7 @@ import os
 import queue
 import subprocess
 import threading
+from collections import deque
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -16,7 +17,7 @@ from ultralytics import YOLO
 import utils
 from config import SYSTEM, settings
 from shared import cam, display_queue, frame_queue, shutdown_event
-from tracking import TrackFrame, TrackManager, TrackSummary
+from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +25,12 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-MODEL = YOLO(settings.MODEL_PATH, task="detect")
+MODEL = YOLO(settings.MODEL_DETECTION_PATH, task="detect")
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,
     conf=settings.CONF,
+    iou=settings.NMS_IOU_THRESHOLD,
     verbose=False,
     max_det=settings.MAX_DETS,
 )
@@ -44,8 +46,7 @@ _GREY_H = 480
 
 
 class FFmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG.
-    Remove this class once quality is confirmed working on target hardware."""
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG."""
 
     def __init__(
         self,
@@ -80,7 +81,7 @@ class FFmpegWriter:
             "6M",
             path,
         ]
-        logger.warning(f"FFmpegWriter cmd: {' '.join(cmd)}")
+        logger.debug(f"FFmpegWriter cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -139,12 +140,8 @@ class Frame:
             (5, 5),
             0,
         )
-        grey_blur_elapsed = (datetime.now() - start).total_seconds()
-        start = datetime.now()
         self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Blur duration: {grey_blur_elapsed*1000:.1f} ms")
-        logger.debug(f"({self.hash}) Hash duration: {elapsed*1000:.1f} ms")
+        utils.log_timing(logger, "Blur and hash", start, self.hash)
 
         if prev_frame is None:
             logger.warning(f"No previous frame provided")
@@ -154,8 +151,8 @@ class Frame:
                 np.uint8
             )
 
-    def _detect_motion(self):
-
+    def _identify_search_area(self):
+        """Identify search area via frame differencing, background subtraction and previous tracks."""
         # start timing
         start = datetime.now()
         logger.debug(f"({self.hash}) Running motion detection")
@@ -179,14 +176,14 @@ class Frame:
                 cv2.drawContours(motion_mask, [c], -1, (0.0,), -1)
 
         # resize previous track mask
-        prev_mask = cv2.resize(
+        track_mask = cv2.resize(
             self.prev_track_mask,
             (_GREY_W, _GREY_H),
             interpolation=cv2.INTER_NEAREST,
         )
 
         # combine motion and previous detection masks into the next detection region
-        search_mask = cv2.bitwise_or(motion_mask, prev_mask)
+        search_mask = cv2.bitwise_or(motion_mask, track_mask)
 
         # store search mask and presence flag
         self._search_mask = cv2.resize(
@@ -199,23 +196,22 @@ class Frame:
         ) > 0.001
 
         # log detection duration
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Motion detection duration: {elapsed*1000:.1f} ms")
+        utils.log_timing(logger, "Motion detection", start, self.hash)
 
         # log motion
         if self._has_search_area:
-            logger.info(f"({self.hash}) Has search area: {self._has_search_area}")
+            logger.debug(f"({self.hash}) Has search area: {self._has_search_area}")
 
     @property
     def search_mask(self) -> np.ndarray:
         if not hasattr(self, "_search_mask"):
-            self._detect_motion()
+            self._identify_search_area()
         return self._search_mask
 
     @property
     def has_search_area(self) -> bool:
         if not hasattr(self, "_has_search_area"):
-            self._detect_motion()
+            self._identify_search_area()
         return self._has_search_area
 
     def _identify_search_bbox(self):
@@ -227,7 +223,7 @@ class Frame:
         ys, xs = np.where(self.search_mask > 0)
         x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
         self._search_bbox = utils.expand_bbox_from_bounds(
-            x_min, x_max, y_min, y_max, w, h, int(0.1 * h)
+            x_min, x_max, y_min, y_max, w, h, 0.1
         )
 
     @property
@@ -236,7 +232,7 @@ class Frame:
             self._identify_search_bbox()
         return self._search_bbox
 
-    def detect_objects(self) -> tuple[List[TrackFrame], bool, bool]:
+    def detect_objects(self) -> tuple[List[TrackFrame], bool]:
         track_frames = []
 
         # run detection if motion is present, active tracks exist, or on forced cadence
@@ -244,7 +240,7 @@ class Frame:
 
             # log forced run
             if not self.has_search_area and self.forced_detection_run:
-                logger.info(f"({self.hash}) forced object detection run")
+                logger.debug(f"({self.hash}) Forced object detection run")
 
             # start timing
             start = datetime.now()
@@ -275,6 +271,7 @@ class Frame:
                 image,
                 imgsz=settings.IMGSZ,
                 conf=settings.CONF,
+                iou=settings.NMS_IOU_THRESHOLD,
                 verbose=False,
                 max_det=settings.MAX_DETS,
             )[0]
@@ -287,6 +284,7 @@ class Frame:
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
+                        image=self.image,
                         bbox=utils.Bbox(xyxy=bbox),
                         class_id=class_id,
                         confidence=float(r.conf[0].item()),
@@ -295,94 +293,117 @@ class Frame:
                 detected_classes.add(class_id)
 
             # log detection duration
-            elapsed = (datetime.now() - start).total_seconds()
-            logger.debug(
-                f"({self.hash}) Object detection duration: {elapsed*1000:.1f} ms"
-            )
-
-            # identify excluded classes
-            has_excluded_class = bool(detected_classes & settings.EXCLUDED_CLASSES)
+            utils.log_timing(logger, "Object detection", start, self.hash)
 
             # log detections
             if detected_classes:
-                logger.info(f"({self.hash}) Object(s) detected: {detected_classes}")
+                logger.debug(f"({self.hash}) Object(s) detected: {detected_classes}")
         else:
-            has_excluded_class = False
             did_run_detection = False
-        return track_frames, has_excluded_class, did_run_detection
+        return track_frames, did_run_detection
+
+    @property
+    def track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_track_summaries"):
+            raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
+        return self._track_summaries
+
+    @track_summaries.setter
+    def track_summaries(self, track_summaries: List[TrackSummary]) -> None:
+        self._track_summaries = track_summaries
 
     @property
     def image_annotated(self) -> np.ndarray:
         if not hasattr(self, "_image_annotated"):
-            raise RuntimeError(f"Image not annotated yet for frame {self.hash}")
-        return self._image_annotated
+            if not hasattr(self, "_track_summaries"):
+                raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
 
-    def annotate_from_tracks(self, track_summaries: List[TrackSummary]) -> None:
-        # start timing
-        start = datetime.now()
-        logger.debug(f"({self.hash}) Annotating image")
+            # start timing
+            start = datetime.now()
+            logger.debug(f"({self.hash}) Annotating image")
 
-        # copy image ready to be annotated
-        self._image_annotated = self.image.copy()
+            # copy image ready to be annotated
+            self._image_annotated = self.image.copy()
 
-        # annotate using track summaries
-        for summary in track_summaries:
-            track_frame = summary.latest_frame
+            # draw frame hash label in top-left corner
+            (txt_w, txt_h), txt_baseline = cv2.getTextSize(self.hash, FONT, 1, 1)
+            box_bot_right = (int(txt_w * 1.1), int(txt_h * 1.2 + txt_baseline))
+            cv2.rectangle(self._image_annotated, (0, 0), box_bot_right, (0, 0, 0), -1)
+            cv2.putText(
+                self._image_annotated,
+                self.hash,
+                (int(txt_w * 0.05), int(txt_h * 1.1 + txt_baseline)),
+                FONT,
+                1,
+                (255, 255, 255),
+            )
 
-            # unpack box coords
-            x1, y1, x2, y2 = track_frame.bbox.xyxy
-            ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
+            # annotate using track summaries
+            for summary in sorted(
+                self._track_summaries, key=lambda s: (s.state, s.track_id), reverse=True
+            ):
+                track_frame = summary.last_valid_frame
 
-            # draw track history
-            thickness = int(min(self._image_annotated.shape[:2]) / 500)
-            previous_point = None
-            for point in summary.history:
-                if point is not None:
-                    cv2.circle(
-                        self._image_annotated,
-                        point,
-                        thickness * 2,
-                        ann_colour,
-                        -1,
-                    )
-                    if previous_point is not None:
-                        cv2.line(
+                # unpack box coords
+                x1, y1, x2, y2 = track_frame.bbox.xyxy
+                ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
+
+                # draw track history
+                thickness = int(min(self._image_annotated.shape[:2]) / 500)
+                previous_point = None
+                for point in summary.history:
+                    if point is not None:
+                        cv2.circle(
                             self._image_annotated,
-                            previous_point,
                             point,
+                            thickness * 2,
                             ann_colour,
-                            thickness,
+                            -1,
                         )
-                previous_point = point
+                        if previous_point is not None:
+                            cv2.line(
+                                self._image_annotated,
+                                previous_point,
+                                point,
+                                ann_colour,
+                                thickness,
+                            )
+                    previous_point = point
 
-            # draw bounding box if current frame is valid
-            if summary.latest_detection_index == summary.frame_count - 1:
+                # draw bounding box if current frame is valid
+                if summary.latest_detection_index == summary.frame_count - 1:
 
-                # draw bounding box
-                thickness = int(min(self._image_annotated.shape[:2]) / 250)
-                cv2.rectangle(
-                    self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
-                )
+                    # draw bounding box
+                    thickness = int(min(self._image_annotated.shape[:2]) / 250)
+                    cv2.rectangle(
+                        self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
+                    )
 
-                # extract object class label/confidence and text size
-                label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
-                (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
+                    # extract object class label/confidence and text size
+                    label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
-                # draw background rectangle for text
-                txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
-                cv2.rectangle(
-                    self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
-                )
+                    # draw background rectangle for text
+                    txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
+                    cv2.rectangle(
+                        self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
+                    )
 
-                # add text
-                txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
-                cv2.putText(
-                    self._image_annotated, label, txt_coords, FONT, 1, (255, 255, 255)
-                )
+                    # add text
+                    txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
+                    cv2.putText(
+                        self._image_annotated,
+                        label,
+                        txt_coords,
+                        FONT,
+                        1,
+                        (255, 255, 255),
+                    )
 
-        # log annotation duration
-        elapsed = (datetime.now() - start).total_seconds()
-        logger.debug(f"({self.hash}) Image annotation duration: {elapsed*1000:.1f} ms")
+            # log annotation duration
+            utils.log_timing(logger, "Image annotation", start, self.hash)
+
+        return self._image_annotated
 
 
 class PreBuffer:
@@ -404,7 +425,8 @@ class PreBuffer:
     def _sort(self):
         self.frames.sort(key=lambda x: x.timestamp)
 
-    def check_duration(self, time):
+    def check_duration(self, time: datetime) -> None:
+        """Remove frames older than BUFFER_DUR seconds."""
         min_time = time - timedelta(seconds=settings.BUFFER_DUR)
         self.frames = [x for x in self.frames if x.timestamp >= min_time]
         self._sort()
@@ -414,12 +436,28 @@ class PreBuffer:
         self.check_duration(frame.timestamp)
 
 
+def _release_writers(
+    wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
+) -> tuple[None, None]:
+    """Release video writers if not None, with optional logging."""
+    log_msg = f": {log_msg}" if log_msg else ""
+    if wtr is not None:
+        wtr.release()
+        logger.info(f"Saving clip{log_msg}")
+    if wtr_r is not None:
+        wtr_r.release()
+        logger.info(f"Saving raw clip{log_msg}")
+    return None, None
+
+
 def processing_thread():
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
 
-    # initialise preroll buffer
+    # initialise buffers
     pre_buffer = PreBuffer(max_duration=settings.BUFFER_DUR)
+    processing_buffer: deque[Frame] = deque()
+    replay_buffer: deque[tuple[datetime, np.ndarray]] = deque()
 
     # initialise state and previous frame
     recording = False
@@ -429,122 +467,46 @@ def processing_thread():
     frames_since_detection = 0
     track_manager = TrackManager()
 
-    while not shutdown_event.is_set() or not frame_queue.empty():
+    while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
 
         # get frame from capture queue
         try:
-            timestamp, image = frame_queue.get(timeout=0.1)
-            start = datetime.now()
-            frame = Frame(
+            if replay_buffer:
+                timestamp, image = replay_buffer.popleft()
+                logger.debug("Processing replay frame")
+            else:
+                timestamp, image = frame_queue.get(timeout=0.1)
+            start_capture = datetime.now()
+            frame_captured = Frame(
                 timestamp=timestamp,
                 image=image,
                 prev_frame=prev_frame,
                 prev_track_mask=track_manager.all_tracks_mask(
                     settings.FRAME_WIDTH, settings.FRAME_HEIGHT
                 ),
-                forced_detection_run=frames_since_detection + 1 >= settings.fps,
+                forced_detection_run=frames_since_detection + 1 >= settings.FPS,
             )
         except queue.Empty:
             continue
 
-        logger.debug(f"({frame.hash}) Running processing")
+        logger.debug(f"({frame_captured.hash}) Running processing")
 
         # detect objects and update tracking state
-        track_frames, has_excluded_class, did_run_detection = frame.detect_objects()
+        track_frames, did_run_detection = frame_captured.detect_objects()
         start_track = datetime.now()
         track_manager.update(track_frames)
-        track_elapsed = (datetime.now() - start_track).total_seconds()
-        logger.debug(f"({frame.hash}) Tracking duration: {track_elapsed*1000:.1f} ms")
+        frame_captured.track_summaries = [
+            t.summary for t in track_manager.non_expired_tracks
+        ]
+        utils.log_timing(logger, "Tracking", start_track, frame_captured.hash)
 
-        # annotate frame from tracking state after tracker update
-        frame.annotate_from_tracks(
-            [t.summary for t in track_manager.non_expired_tracks]
-        )
-
-        if track_frames:
-
-            if has_excluded_class:
-
-                # clear buffer
-                pre_buffer.frames.clear()
-                track_manager = TrackManager()
-                logger.info("Clearing buffer due to detection of excluded class")
-
-            else:
-                # initialise recording and write pre buffer to video file
-                if not recording:
-                    out_path = os.path.join(
-                        settings.OUTPUT_DIR,
-                        f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
-                    )
-                    writer = FFmpegWriter(
-                        out_path,
-                        settings.fps,
-                        settings.FRAME_WIDTH,
-                        settings.FRAME_HEIGHT,
-                        settings.MJPEG_QV,
-                    )
-                    logger.warning(f"Starting recording: {out_path}")
-                    if settings.SAVE_RAW_VIDEO:
-                        out_raw_path = os.path.join(
-                            settings.OUTPUT_DIR,
-                            f"{frame.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
-                        )
-                        writer_raw = FFmpegWriter(
-                            out_raw_path,
-                            settings.fps,
-                            settings.FRAME_WIDTH,
-                            settings.FRAME_HEIGHT,
-                            settings.MJPEG_QV,
-                        )
-                    pre_buffer_len = len(pre_buffer)
-                    start_buf = datetime.now()
-                    for bf in pre_buffer:
-                        writer.write(bf.image_annotated)
-                        if settings.SAVE_RAW_VIDEO:
-                            writer_raw.write(bf.image)
-                    logger.info(
-                        f"Written {pre_buffer_len} frames from pre detection buffer"
-                    )
-                    logger.debug(
-                        f"({frame.hash}) Buffer writing duration: {(datetime.now() - start_buf).total_seconds()*1000:.1f} ms"
-                    )
-                    recording = True
-
-        if recording:
-
-            # write current frame and assess post buffer termination
-            if not has_excluded_class:
-                start_write = datetime.now()
-                writer.write(frame.image_annotated)
-                if settings.SAVE_RAW_VIDEO:
-                    writer_raw.write(frame.image)
-                logger.debug(
-                    f"({frame.hash}) Current frame writing duration: {(datetime.now() - start_write).total_seconds()*1000:.1f} ms"
-                )
-
-            # stop recording close video file
-            if not track_manager.non_expired_tracks or has_excluded_class:
-                writer.release()
-                if settings.SAVE_RAW_VIDEO:
-                    writer_raw.release()
-                    writer_raw = None
-                if not track_manager.non_expired_tracks:
-                    logger.info("Saving clip: all tracks expired")
-                elif has_excluded_class:
-                    logger.info(f"Saving clip: excluded class detected")
-                recording = False
-
-        else:
-
-            # store current frame image and timestamp to rolling buffer
-            if not has_excluded_class:
-                pre_buffer.put(frame)
+        # add captured frame to processing buffer
+        processing_buffer.append(frame_captured)
 
         # send frame to display queue
         if SYSTEM == "Darwin":
             try:
-                display_queue.put_nowait(frame.image_annotated.copy())
+                display_queue.put_nowait(frame_captured.image_annotated.copy())
             except queue.Full:
                 pass
 
@@ -555,21 +517,157 @@ def processing_thread():
             frames_since_detection += 1
 
         # update current frame to be previous frame
-        prev_frame = frame
+        prev_frame = frame_captured
 
         # log processing rate
-        elapsed = (datetime.now() - start).total_seconds()
-        processing_fps = 1 / elapsed
-        logger.debug(f"({frame.hash}) Processing duration: {elapsed*1000:.1f} ms")
-        if processing_fps < settings.fps:
-            logger.warning(f"Processing thread slow: {processing_fps:.1f} FPS")
+        elapsed_capture = utils.log_timing(
+            logger, "Processing", start_capture, frame_captured.hash
+        )
+
+        # process frames in the buffer if enough frames have been captured
+        start_recording = datetime.now()
+        while len(processing_buffer) > int(np.ceil(settings.FPS)):
+
+            # extract frame and check for excluded classes
+            frame_recording = processing_buffer.popleft()
+            current_summaries_recording = [
+                track_manager.get_track(t.track_id).summary
+                for t in frame_recording.track_summaries
+            ]
+            assert all([s.confirmed is not None for s in current_summaries_recording])
+            current_confirmed_summaries_recording = [
+                s for s in current_summaries_recording if s.confirmed
+            ]
+            has_excluded_class = any(
+                s.last_valid_frame.class_id in settings.EXCLUDED_CLASSES
+                for s in current_confirmed_summaries_recording
+            )
+
+            if any(
+                s.state == TrackState.ACTIVE
+                for s in current_confirmed_summaries_recording
+            ):
+
+                if has_excluded_class:
+
+                    # clear buffers
+                    processing_buffer.clear()
+                    pre_buffer.frames.clear()
+                    track_manager = TrackManager()
+                    logger.info("Clearing buffer due to detection of excluded class")
+
+                else:
+
+                    # initialise recording and write pre buffer to video file
+                    if not recording:
+
+                        # init recordings
+                        out_path = os.path.join(
+                            settings.OUTPUT_DIR,
+                            f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                        )
+                        writer = FFmpegWriter(
+                            out_path,
+                            settings.FPS,
+                            settings.FRAME_WIDTH,
+                            settings.FRAME_HEIGHT,
+                            settings.MJPEG_QV,
+                        )
+                        logger.warning(f"Starting recording: {out_path}")
+                        if settings.SAVE_RAW_VIDEO:
+                            out_raw_path = os.path.join(
+                                settings.OUTPUT_DIR,
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
+                            )
+                            writer_raw = FFmpegWriter(
+                                out_raw_path,
+                                settings.FPS,
+                                settings.FRAME_WIDTH,
+                                settings.FRAME_HEIGHT,
+                                settings.MJPEG_QV,
+                            )
+
+                        # flush buffer
+                        pre_buffer_len = len(pre_buffer)
+                        start_buf = datetime.now()
+                        for bf in pre_buffer:
+                            writer.write(bf.image_annotated)
+                            if settings.SAVE_RAW_VIDEO:
+                                writer_raw.write(bf.image)
+                        logger.info(
+                            f"Written {pre_buffer_len} frames from pre detection buffer"
+                        )
+                        utils.log_timing(
+                            logger, "Buffer writing", start_buf, frame_recording.hash
+                        )
+
+                        recording = True
+
+            if recording:
+
+                # write current frame and assess post buffer termination
+                if not has_excluded_class:
+                    start_write = datetime.now()
+                    writer.write(frame_recording.image_annotated)
+                    if settings.SAVE_RAW_VIDEO:
+                        writer_raw.write(frame_recording.image)
+                    utils.log_timing(
+                        logger,
+                        "Current frame writing",
+                        start_write,
+                        frame_recording.hash,
+                    )
+
+                # stop recording close video file
+                if not track_manager.non_expired_tracks or has_excluded_class:
+                    if not track_manager.non_expired_tracks:
+                        writer, writer_raw = _release_writers(
+                            writer, writer_raw, "all tracks expired"
+                        )
+                    elif has_excluded_class:
+                        writer, writer_raw = _release_writers(
+                            writer, writer_raw, "excluded class detected"
+                        )
+
+                    if not track_manager.non_expired_tracks:
+                        replayed = len(processing_buffer)
+                        if replayed:
+                            while processing_buffer:
+                                frame_replay = processing_buffer.popleft()
+                                replay_buffer.append(
+                                    (frame_replay.timestamp, frame_replay.image.copy())
+                                )
+                            logger.info(
+                                f"Queued {replayed} delayed frame(s) for replay"
+                            )
+                            pre_buffer.frames.clear()
+                            track_manager = TrackManager()
+                            prev_frame = None
+                            frames_since_detection = 0
+                            logger.info(
+                                "Reset processing state before replaying delayed frames"
+                            )
+                    recording = False
+
+            else:
+
+                # store current frame image and timestamp to rolling buffer
+                if not has_excluded_class:
+                    pre_buffer.put(frame_recording)
+
+        # log recording rate
+        elapsed_recording = utils.log_timing(
+            logger, "Recording", start_recording, frame_captured.hash
+        )
+
+        # log overall FPS
+        if (overall_fps := 1 / (elapsed_capture + elapsed_recording)) < settings.FPS:
+            logger.warning(f"Processing thread slow: {overall_fps:.1f} FPS")
 
     # cleanup
-    if writer is not None:
-        writer.release()
-        logger.info("Saving clip")
-    if writer_raw is not None:
-        writer_raw.release()
-        logger.info("Saving raw clip")
+    if processing_buffer:
+        logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
+        processing_buffer.clear()
+    writer, writer_raw = _release_writers(writer, writer_raw)
 
     logger.info("Processing thread stopped")

@@ -1,7 +1,20 @@
+import logging
 from collections import defaultdict
+from datetime import datetime
 from typing import Optional, Tuple
 
 import torch
+
+
+def log_timing(
+    logger: logging.Logger, task: str, start_time: datetime, frame_hash: str = ""
+) -> float:
+    """Log task duration in milliseconds with optional frame hash context."""
+    elapsed_sec = (datetime.now() - start_time).total_seconds()
+    frame_hash_str = f"({frame_hash}) " if frame_hash else ""
+    logger.debug(f"{frame_hash_str}{task} duration: {elapsed_sec * 1000:.1f} ms")
+    return elapsed_sec
+
 
 # Map annotation colours based on class
 CLASS_COLOUR_MAP = defaultdict(
@@ -101,18 +114,24 @@ def expand_bbox_from_bounds(
     y_max: int,
     image_width: int,
     image_height: int,
-    pad: int,
+    pad: float,
+    target_aspect_ratio: Optional[float] = None,
 ) -> list[int]:
     """Expand a bbox with padding and enforce frame aspect ratio."""
 
     # identify initial padded bounding box
+    pad = int(pad * max(image_width, image_height))
     y1, y2 = max(0, y_min - pad), min(image_height - 1, y_max + pad)
     x1, x2 = max(0, x_min - pad), min(image_width - 1, x_max + pad)
 
     # calculate current and target aspect ratio
     box_h = y2 - y1 + 1
     box_w = x2 - x1 + 1
-    target_ar = image_width / image_height
+    target_ar = (
+        target_aspect_ratio
+        if target_aspect_ratio is not None
+        else image_width / image_height
+    )
     box_ar = box_w / box_h
 
     # calculate extra pixels needed and space either side
