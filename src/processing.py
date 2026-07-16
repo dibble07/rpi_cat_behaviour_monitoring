@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-MODEL = YOLO(settings.MODEL_PATH, task="detect")
+MODEL = YOLO(settings.MODEL_DETECTION_PATH, task="detect")
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=settings.IMGSZ,

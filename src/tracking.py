@@ -21,18 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 _EMBEDDING_IMGSZ = 320
-_EMBEDDING_MODEL_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "models"
-    / "mobilenetv3_large_embeddings_onnx_model"
-    / "model.onnx"
-)
 _EMBEDDING_PREPROCESS = models.MobileNet_V3_Large_Weights.DEFAULT.transforms(
     crop_size=_EMBEDDING_IMGSZ,
     resize_size=_EMBEDDING_IMGSZ,
 )
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    str(_EMBEDDING_MODEL_PATH), providers=["CPUExecutionProvider"]
+    settings.MODEL_EMBEDDINGS_PATH + ".onnx", providers=["CPUExecutionProvider"]
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
