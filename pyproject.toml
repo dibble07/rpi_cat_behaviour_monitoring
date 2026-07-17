@@ -25,6 +25,7 @@ dev = [
     "mypy==1.19.1",
     "onnx>=1.22.0",
     "onnxscript>=0.7.1",
+    "optuna>=4.9.0",
     "pandas>=2.3.3",
     "pnnx>=20260112",
     "pre-commit==4.5.0",
