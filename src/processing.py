@@ -28,7 +28,7 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
 MODEL = YOLO(settings.MODEL_DETECTION_PATH, task="detect")
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
-    imgsz=settings.IMGSZ,
+    imgsz=settings.DETECTION_IMGSZ,
     conf=settings.CONF,
     iou=settings.NMS_IOU_THRESHOLD,
     verbose=False,
@@ -269,7 +269,7 @@ class Frame:
             # run model inference
             results = MODEL(
                 image,
-                imgsz=settings.IMGSZ,
+                imgsz=settings.DETECTION_IMGSZ,
                 conf=settings.CONF,
                 iou=settings.NMS_IOU_THRESHOLD,
                 verbose=False,
