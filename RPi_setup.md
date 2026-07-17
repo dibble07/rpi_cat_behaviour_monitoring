@@ -1,5 +1,5 @@
 # rpi_cat_behaviour_monitoring
-Raspberry Pi app to monitor cats with live video feed and identify poor behaviour
+Raspberry Pi setup for app
 
 ## Disable wifi powersave mode
 1. Create a systemd service file: `/etc/systemd/system/disable-wifi-powersave.service`
