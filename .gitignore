@@ -212,7 +212,7 @@ __marimo__/
 # Data
 models/
 runs/
-sample_images/
+mock_inputs/
 object_clips/
 datasets/finetune_data/
 datasets/finetune_data_cropped/
