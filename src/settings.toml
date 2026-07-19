@@ -17,4 +17,5 @@ OUTPUT_DIR = "object_clips" # Output folder for clips/logs
 SAVE_RAW_VIDEO = true # Save full raw video stream
 TRACK_HISTORY_DUR = 5 # Seconds to retain track history
 TRACK_IOU_THRESHOLD = 0.3 # IoU threshold for track matching
-TRACK_NEW_TRACK_CONF_THRESHOLD = 0.4 # Confidence needed for new tracks
+TRACK_NEW_CONF_THRESHOLD = 0.4 # Confidence needed for new tracks
+TRACK_NEW_DUR = 2 # Allowable duration in new state

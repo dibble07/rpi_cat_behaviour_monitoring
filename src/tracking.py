@@ -230,20 +230,25 @@ class Track:
             case None:
                 state = TrackState.NEW
             case TrackState.NEW:
-                ceil_FPS = int(np.ceil(settings.FPS))
+                new_frame_count = int(np.ceil(settings.FPS) * settings.TRACK_NEW_DUR)
                 frames_init = self._frames[
-                    self._first_detection_index : self._first_detection_index + ceil_FPS
+                    self._first_detection_index : self._first_detection_index
+                    + new_frame_count
                 ]
-                if sum([f is not None for f in frames_init]) > ceil_FPS / 2 and any(
-                    [
-                        f.confidence >= settings.TRACK_NEW_TRACK_CONF_THRESHOLD
-                        for f in frames_init
-                        if f
-                    ]
+                frames_init_valid = [f for f in frames_init if f is not None]
+                if (
+                    len(frames_init_valid) > new_frame_count / 2
+                    and sum(
+                        [
+                            f.confidence >= settings.TRACK_NEW_CONF_THRESHOLD
+                            for f in frames_init_valid
+                        ]
+                    )
+                    > new_frame_count / 4
                 ):
                     state = TrackState.ACTIVE
                     self._confirmed = True
-                elif self._first_detection_index + ceil_FPS >= frame_count:
+                elif self._first_detection_index + new_frame_count >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED

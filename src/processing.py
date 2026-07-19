@@ -524,7 +524,9 @@ def processing_thread():
 
         # process frames in the buffer if enough frames have been captured
         start_recording = datetime.now()
-        while len(processing_buffer) > int(np.ceil(settings.FPS)):
+        while len(processing_buffer) > int(
+            np.ceil(settings.FPS) * settings.TRACK_NEW_DUR
+        ):
 
             # extract frame and check for excluded classes
             frame_recording = processing_buffer.popleft()
