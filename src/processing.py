@@ -7,8 +7,8 @@ import queue
 import subprocess
 import threading
 from collections import deque
-from datetime import datetime, timedelta
-from typing import List, Optional, Union
+from datetime import datetime
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -406,36 +406,6 @@ class Frame:
         return self._image_annotated
 
 
-class PreBuffer:
-    def __init__(self, max_duration: Union[int, float]):
-        self.max_duration = max_duration
-        self.frames: List[Frame] = []
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if not self.frames:
-            raise StopIteration
-        return self.frames.pop(0)
-
-    def __len__(self):
-        return len(self.frames)
-
-    def _sort(self):
-        self.frames.sort(key=lambda x: x.timestamp)
-
-    def check_duration(self, time: datetime) -> None:
-        """Remove frames older than BUFFER_DUR seconds."""
-        min_time = time - timedelta(seconds=settings.BUFFER_DUR)
-        self.frames = [x for x in self.frames if x.timestamp >= min_time]
-        self._sort()
-
-    def put(self, frame: Frame):
-        self.frames.append(frame)
-        self.check_duration(frame.timestamp)
-
-
 def _release_writers(
     wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
 ) -> tuple[None, None]:
@@ -455,7 +425,9 @@ def processing_thread():
     logger.info("Processing thread started")
 
     # initialise buffers
-    pre_buffer = PreBuffer(max_duration=settings.BUFFER_DUR)
+    pre_buffer: deque[Frame] = deque(
+        maxlen=int(np.ceil(settings.FPS * settings.BUFFER_DUR))
+    )
     processing_buffer: deque[Frame] = deque()
     replay_buffer: deque[tuple[datetime, np.ndarray]] = deque()
 
@@ -552,7 +524,7 @@ def processing_thread():
 
                     # clear buffers
                     processing_buffer.clear()
-                    pre_buffer.frames.clear()
+                    pre_buffer.clear()
                     track_manager = TrackManager()
                     logger.info("Clearing buffer due to detection of excluded class")
 
@@ -590,7 +562,8 @@ def processing_thread():
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
                         start_buf = datetime.now()
-                        for bf in pre_buffer:
+                        while pre_buffer:
+                            bf = pre_buffer.popleft()
                             writer.write(bf.image_annotated)
                             if settings.SAVE_RAW_VIDEO:
                                 writer_raw.write(bf.image)
@@ -640,7 +613,7 @@ def processing_thread():
                             logger.info(
                                 f"Queued {replayed} delayed frame(s) for replay"
                             )
-                            pre_buffer.frames.clear()
+                            pre_buffer.clear()
                             track_manager = TrackManager()
                             prev_frame = None
                             frames_since_detection = 0
@@ -653,7 +626,7 @@ def processing_thread():
 
                 # store current frame image and timestamp to rolling buffer
                 if not has_excluded_class:
-                    pre_buffer.put(frame_recording)
+                    pre_buffer.append(frame_recording)
 
         # log recording rate
         elapsed_recording = utils.log_timing(
