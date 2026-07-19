@@ -20,13 +20,12 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-_EMBEDDING_IMGSZ = 320
 _EMBEDDING_PREPROCESS = models.ShuffleNet_V2_X0_5_Weights.DEFAULT.transforms(
-    crop_size=_EMBEDDING_IMGSZ,
-    resize_size=_EMBEDDING_IMGSZ,
+    crop_size=settings.EMBEDDING_IMGSZ,
+    resize_size=settings.EMBEDDING_IMGSZ,
 )
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    settings.MODEL_EMBEDDINGS_PATH + ".onnx", providers=["CPUExecutionProvider"]
+    settings.MODEL_EMBEDDING_PATH + ".onnx", providers=["CPUExecutionProvider"]
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
