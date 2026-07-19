@@ -493,12 +493,10 @@ def processing_thread():
 
         # detect objects and update tracking state
         track_frames, did_run_detection = frame_captured.detect_objects()
-        start_track = datetime.now()
-        track_manager.update(track_frames)
+        track_manager.update(track_frames, frame_captured.hash)
         frame_captured.track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
         ]
-        utils.log_timing(logger, "Tracking", start_track, frame_captured.hash)
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)

@@ -333,7 +333,7 @@ class TrackManager:
         logger.debug(f"New Track: track={track.track_id}")
         return track
 
-    def update(self, candidates: List[TrackFrame]) -> None:
+    def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
 
         # store length of tracks before update
         frame_index = len(self)
@@ -349,6 +349,7 @@ class TrackManager:
                 padded_scores[track_index, candidate_index] = track.score(candidate)
 
         # assign tracks to candidates/dummies
+        start = datetime.now()
         row_ind, col_ind = linear_sum_assignment(padded_scores, maximize=True)
 
         # assign matched candidates to tracks
@@ -373,6 +374,7 @@ class TrackManager:
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
                 self.tracks.append(self._new_track(candidate, frame_index))
+        utils.log_timing(logger, "Track updates", start, frame_hash)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
