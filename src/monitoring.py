@@ -29,7 +29,7 @@ def monitoring_thread() -> None:
 
         # thread counts
         num_threads = process.num_threads()
-        logger.debug(f"Threads:{num_threads}")
+        logger.debug(f"Threads: {num_threads}")
 
         # queue size
         q_len = frame_queue.qsize()
