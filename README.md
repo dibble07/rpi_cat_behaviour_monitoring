@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A real-time video monitoring system running on Raspberry Pi that detects cats and other objects using object detection. When specific behaviours or detections occur, the system automatically records annotated video clips with tracking information (IDs, confidence scores, bounding boxes). The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
+A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records annotated video clips with tracking information (IDs, confidence scores, bounding boxes, cat labels). The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
 
 ## Demo
 
@@ -26,8 +26,9 @@ The core pipeline. For each frame dequeued, it:
 1. Identifies search regions based on observed motion, image foreground and existing tracks
 2. Crops image to area of interest and runs object detection
 3. Updates Tracks
-    - Assigns detectiosn to existing Tracks
+    - Assigns detections to existing Tracks
     - Updates state of each Track
+    - Identifies cat
 4. Buffers and records video clips based on track state
 
 #### Object Detection
@@ -67,9 +68,9 @@ flowchart TD
 
 #### Tracking State Machine
 
-Tracks move between various states based on the age and confidence of recent detections. These states determine the initilisation and termination of recording as well as annotation of the video.
+Tracks move between various states based on the age and confidence of recent detections. These states determine the initialisation and termination of recording as well as annotation of the video.
 
-| State | Desciption |
+| State | Description |
 |-------|-------|
 | **NEW** | Holding state until enough detections of high enough confidence are matched |
 | **ACTIVE** | Confirmed Track with detection in current Frame |
@@ -84,6 +85,10 @@ stateDiagram-v2
     STALE --> ACTIVE: Detection<br/>reacquired
     STALE --> EXPIRED: Timeout
 ```
+
+#### Cat Classification
+
+After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting cat label is used in video annotation, so confirmed cat Tracks are displayed with identity-aware labels rather than only object class labels.
 
 #### Recording
 
@@ -128,6 +133,7 @@ The exported video relies on a few different components and conditions:
 | [src/monitoring.py](src/monitoring.py) | Resource monitoring: logs system metrics periodically |
 | [src/camera.py](src/camera.py) | Camera abstraction layer: handles different camera backends |
 | [src/config.py](src/config.py) | Configuration loader: reads settings from `settings.toml` |
+| [src/classification.py](src/classification.py) | Cat identity classification: predicts cat labels from embedding features |
 | [src/tracking.py](src/tracking.py) | Tracking system: Hungarian algorithm, Kalman filtering, state machine |
 | [src/utils.py](src/utils.py) | Utility functions: bounding box operations, logging helpers |
 
@@ -135,7 +141,7 @@ The exported video relies on a few different components and conditions:
 
 | Directory | Purpose |
 |---|---|
-| **classification_data/** | Training data for cat identification and behavious classification: contains labels and train/validation splits |
+| **classification_data/** | Training data for cat identification and behaviour classification: contains labels and train/validation splits |
 | **coco_metadata/** | COCO object detection training data configuration files: base and variant configurations |
 | **finetune_data/** | Fine-tuning dataset with images and label annotations |
 | **finetune_data_cropped/** | Pre-processed version of fine-tuning data |

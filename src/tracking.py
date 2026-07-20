@@ -14,6 +14,7 @@ from PIL import Image
 from scipy.optimize import linear_sum_assignment
 from torchvision import models
 
+import classification
 import utils
 from config import settings
 
@@ -125,6 +126,7 @@ class TrackSummary:
     confirmed: Optional[bool]
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
+    cat_name: Optional[str] = None
 
 
 class Track:
@@ -167,7 +169,7 @@ class Track:
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self._frames.append(frame)
-        self._update_summary()
+        self._update_summary(frame_hash=frame.frame_hash if frame is not None else None)
 
     def _init_kf(self, meas: np.ndarray) -> None:
         kf = KalmanFilter(
@@ -196,7 +198,7 @@ class Track:
             )
         )
 
-    def _update_summary(self) -> None:
+    def _update_summary(self, frame_hash: str) -> None:
         prev_summary = getattr(self, "_summary", None)
 
         # update kalman filter
@@ -272,6 +274,26 @@ class Track:
             case TrackState.EXPIRED:
                 state = TrackState.EXPIRED
 
+        # reclassify update track or keep existing classification
+        if last_frame is not None:
+
+            # calculate weighted average embedding by detection confidence
+            valid_frames = [f for f in self._frames if f is not None]
+            embeddings = np.stack(
+                [f.roi_embedding.astype(np.float32) for f in valid_frames]
+            )
+            weights = np.array([f.confidence for f in valid_frames], dtype=np.float32)
+            avg_embedding = np.average(embeddings, axis=0, weights=weights)
+
+            # classify average embedding
+            start = datetime.now()
+            result = classification.classify_embedding(avg_embedding)
+            cat_name = result["cat_name"]
+            utils.log_timing(logger, "Classification", start, frame_hash)
+
+        else:
+            cat_name = prev_summary.cat_name
+
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
@@ -283,16 +305,17 @@ class Track:
             state=state,
             confirmed=self._confirmed,
             estimated_bbox=self._next_bbox_from_kf(),
+            cat_name=cat_name,
         )
 
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({last_valid_frame.frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
             state_unchanged = prev_summary.state.name[0] == state.name[0]
-            log_str = f"({last_valid_frame.frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+            log_str = f"({frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
             if state_unchanged:
                 logger.debug(log_str)
             else:
