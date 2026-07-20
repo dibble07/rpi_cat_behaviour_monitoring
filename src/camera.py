@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class Cv2_camera:
     def __init__(self):
         # initialise camera object
-        avi_files = [str(path) for path in Path("mock_inputs").glob("*.avi")]
+        avi_files = [str(path) for path in Path("datasets/mock_inputs").glob("*.avi")]
         if not avi_files:
             raise FileNotFoundError(f"No .avi files found in mock_inputs directory")
 
