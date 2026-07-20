@@ -8,6 +8,7 @@ import subprocess
 import threading
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 import cv2
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-MODEL = YOLO(settings.MODEL_DETECTION_PATH, task="detect")
+MODEL = YOLO(Path("models") / settings.MODEL_DETECTION_PATH, task="detect")
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=settings.DETECTION_IMGSZ,

@@ -25,7 +25,8 @@ _EMBEDDING_PREPROCESS = models.ShuffleNet_V2_X0_5_Weights.DEFAULT.transforms(
     resize_size=settings.EMBEDDING_IMGSZ,
 )
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    settings.MODEL_EMBEDDING_PATH + ".onnx", providers=["CPUExecutionProvider"]
+    Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
+    providers=["CPUExecutionProvider"],
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 

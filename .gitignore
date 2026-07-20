@@ -210,7 +210,7 @@ __marimo__/
 .DS_Store
 
 # Data
-models/
+models_staging/
 runs/
 object_clips/
 datasets/
