@@ -48,4 +48,4 @@ def monitoring_thread() -> None:
             case _:
                 logger.debug(f"Disk write: {disk_write_mb:.0f} MB total")
 
-        time.sleep(settings.MONITORING_FREQ)
+        time.sleep(settings.MONITORING_PERIOD)
