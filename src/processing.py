@@ -7,8 +7,9 @@ import queue
 import subprocess
 import threading
 from collections import deque
-from datetime import datetime, timedelta
-from typing import List, Optional, Union
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -25,10 +26,10 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-MODEL = YOLO(settings.MODEL_DETECTION_PATH, task="detect")
+MODEL = YOLO(Path("models") / settings.MODEL_DETECTION_PATH, task="detect")
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
-    imgsz=settings.IMGSZ,
+    imgsz=settings.DETECTION_IMGSZ,
     conf=settings.CONF,
     iou=settings.NMS_IOU_THRESHOLD,
     verbose=False,
@@ -269,7 +270,7 @@ class Frame:
             # run model inference
             results = MODEL(
                 image,
-                imgsz=settings.IMGSZ,
+                imgsz=settings.DETECTION_IMGSZ,
                 conf=settings.CONF,
                 iou=settings.NMS_IOU_THRESHOLD,
                 verbose=False,
@@ -380,7 +381,9 @@ class Frame:
                     )
 
                     # extract object class label/confidence and text size
-                    label = f"{MODEL.names[track_frame.class_id]} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    class_name = MODEL.names[track_frame.class_id]
+                    cat_name = summary.cat_name if class_name == "cat" else class_name
+                    label = f"{cat_name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
@@ -406,36 +409,6 @@ class Frame:
         return self._image_annotated
 
 
-class PreBuffer:
-    def __init__(self, max_duration: Union[int, float]):
-        self.max_duration = max_duration
-        self.frames: List[Frame] = []
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if not self.frames:
-            raise StopIteration
-        return self.frames.pop(0)
-
-    def __len__(self):
-        return len(self.frames)
-
-    def _sort(self):
-        self.frames.sort(key=lambda x: x.timestamp)
-
-    def check_duration(self, time: datetime) -> None:
-        """Remove frames older than BUFFER_DUR seconds."""
-        min_time = time - timedelta(seconds=settings.BUFFER_DUR)
-        self.frames = [x for x in self.frames if x.timestamp >= min_time]
-        self._sort()
-
-    def put(self, frame: Frame):
-        self.frames.append(frame)
-        self.check_duration(frame.timestamp)
-
-
 def _release_writers(
     wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
 ) -> tuple[None, None]:
@@ -455,7 +428,9 @@ def processing_thread():
     logger.info("Processing thread started")
 
     # initialise buffers
-    pre_buffer = PreBuffer(max_duration=settings.BUFFER_DUR)
+    pre_buffer: deque[Frame] = deque(
+        maxlen=int(np.ceil(settings.FPS * settings.BUFFER_DUR))
+    )
     processing_buffer: deque[Frame] = deque()
     replay_buffer: deque[tuple[datetime, np.ndarray]] = deque()
 
@@ -493,12 +468,10 @@ def processing_thread():
 
         # detect objects and update tracking state
         track_frames, did_run_detection = frame_captured.detect_objects()
-        start_track = datetime.now()
-        track_manager.update(track_frames)
+        track_manager.update(track_frames, frame_captured.hash)
         frame_captured.track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
         ]
-        utils.log_timing(logger, "Tracking", start_track, frame_captured.hash)
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)
@@ -526,7 +499,9 @@ def processing_thread():
 
         # process frames in the buffer if enough frames have been captured
         start_recording = datetime.now()
-        while len(processing_buffer) > int(np.ceil(settings.FPS)):
+        while len(processing_buffer) > int(
+            np.ceil(settings.FPS) * settings.TRACK_NEW_DUR
+        ):
 
             # extract frame and check for excluded classes
             frame_recording = processing_buffer.popleft()
@@ -552,7 +527,7 @@ def processing_thread():
 
                     # clear buffers
                     processing_buffer.clear()
-                    pre_buffer.frames.clear()
+                    pre_buffer.clear()
                     track_manager = TrackManager()
                     logger.info("Clearing buffer due to detection of excluded class")
 
@@ -590,7 +565,8 @@ def processing_thread():
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
                         start_buf = datetime.now()
-                        for bf in pre_buffer:
+                        while pre_buffer:
+                            bf = pre_buffer.popleft()
                             writer.write(bf.image_annotated)
                             if settings.SAVE_RAW_VIDEO:
                                 writer_raw.write(bf.image)
@@ -640,7 +616,7 @@ def processing_thread():
                             logger.info(
                                 f"Queued {replayed} delayed frame(s) for replay"
                             )
-                            pre_buffer.frames.clear()
+                            pre_buffer.clear()
                             track_manager = TrackManager()
                             prev_frame = None
                             frames_since_detection = 0
@@ -653,7 +629,7 @@ def processing_thread():
 
                 # store current frame image and timestamp to rolling buffer
                 if not has_excluded_class:
-                    pre_buffer.put(frame_recording)
+                    pre_buffer.append(frame_recording)
 
         # log recording rate
         elapsed_recording = utils.log_timing(

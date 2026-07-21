@@ -29,7 +29,7 @@ def monitoring_thread() -> None:
 
         # thread counts
         num_threads = process.num_threads()
-        logger.debug(f"Threads:{num_threads}")
+        logger.debug(f"Threads: {num_threads}")
 
         # queue size
         q_len = frame_queue.qsize()
@@ -48,4 +48,4 @@ def monitoring_thread() -> None:
             case _:
                 logger.debug(f"Disk write: {disk_write_mb:.0f} MB total")
 
-        time.sleep(settings.MONITORING_FREQ)
+        time.sleep(settings.MONITORING_PERIOD)

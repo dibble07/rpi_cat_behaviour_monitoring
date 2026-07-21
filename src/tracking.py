@@ -14,19 +14,20 @@ from PIL import Image
 from scipy.optimize import linear_sum_assignment
 from torchvision import models
 
+import classification
 import utils
 from config import settings
 
 logger = logging.getLogger(__name__)
 
 
-_EMBEDDING_IMGSZ = 320
 _EMBEDDING_PREPROCESS = models.ShuffleNet_V2_X0_5_Weights.DEFAULT.transforms(
-    crop_size=_EMBEDDING_IMGSZ,
-    resize_size=_EMBEDDING_IMGSZ,
+    crop_size=settings.EMBEDDING_IMGSZ,
+    resize_size=settings.EMBEDDING_IMGSZ,
 )
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    settings.MODEL_EMBEDDINGS_PATH + ".onnx", providers=["CPUExecutionProvider"]
+    Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
+    providers=["CPUExecutionProvider"],
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
@@ -125,6 +126,7 @@ class TrackSummary:
     confirmed: Optional[bool]
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
+    cat_name: Optional[str] = None
 
 
 class Track:
@@ -146,10 +148,7 @@ class Track:
 
     def score(self, candidate: TrackFrame) -> float:
         iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
-        if (
-            iou >= settings.TRACK_IOU_THRESHOLD
-            and candidate.class_id == self.summary.last_valid_frame.class_id
-        ):
+        if candidate.class_id == self.summary.last_valid_frame.class_id:
             conf = candidate.confidence
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
@@ -167,7 +166,7 @@ class Track:
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self._frames.append(frame)
-        self._update_summary()
+        self._update_summary(frame_hash=frame.frame_hash if frame is not None else None)
 
     def _init_kf(self, meas: np.ndarray) -> None:
         kf = KalmanFilter(
@@ -196,7 +195,7 @@ class Track:
             )
         )
 
-    def _update_summary(self) -> None:
+    def _update_summary(self, frame_hash: str) -> None:
         prev_summary = getattr(self, "_summary", None)
 
         # update kalman filter
@@ -230,20 +229,25 @@ class Track:
             case None:
                 state = TrackState.NEW
             case TrackState.NEW:
-                ceil_FPS = int(np.ceil(settings.FPS))
+                new_frame_count = int(np.ceil(settings.FPS) * settings.TRACK_NEW_DUR)
                 frames_init = self._frames[
-                    self._first_detection_index : self._first_detection_index + ceil_FPS
+                    self._first_detection_index : self._first_detection_index
+                    + new_frame_count
                 ]
-                if sum([f is not None for f in frames_init]) > ceil_FPS / 2 and any(
-                    [
-                        f.confidence >= settings.TRACK_NEW_TRACK_CONF_THRESHOLD
-                        for f in frames_init
-                        if f
-                    ]
+                frames_init_valid = [f for f in frames_init if f is not None]
+                if (
+                    len(frames_init_valid) > new_frame_count / 2
+                    and sum(
+                        [
+                            f.confidence >= settings.TRACK_NEW_CONF_THRESHOLD
+                            for f in frames_init_valid
+                        ]
+                    )
+                    > new_frame_count / 4
                 ):
                     state = TrackState.ACTIVE
                     self._confirmed = True
-                elif self._first_detection_index + ceil_FPS >= frame_count:
+                elif self._first_detection_index + new_frame_count >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
@@ -267,6 +271,26 @@ class Track:
             case TrackState.EXPIRED:
                 state = TrackState.EXPIRED
 
+        # reclassify update track or keep existing classification
+        if last_frame is not None:
+
+            # calculate weighted average embedding by detection confidence
+            valid_frames = [f for f in self._frames if f is not None]
+            embeddings = np.stack(
+                [f.roi_embedding.astype(np.float32) for f in valid_frames]
+            )
+            weights = np.array([f.confidence for f in valid_frames], dtype=np.float32)
+            avg_embedding = np.average(embeddings, axis=0, weights=weights)
+
+            # classify average embedding
+            start = datetime.now()
+            result = classification.classify_embedding(avg_embedding)
+            cat_name = result["cat_name"]
+            utils.log_timing(logger, "Classification", start, frame_hash)
+
+        else:
+            cat_name = prev_summary.cat_name
+
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
@@ -278,16 +302,17 @@ class Track:
             state=state,
             confirmed=self._confirmed,
             estimated_bbox=self._next_bbox_from_kf(),
+            cat_name=cat_name,
         )
 
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({last_valid_frame.frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
             state_unchanged = prev_summary.state.name[0] == state.name[0]
-            log_str = f"({last_valid_frame.frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+            log_str = f"({frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
             if state_unchanged:
                 logger.debug(log_str)
             else:
@@ -333,7 +358,7 @@ class TrackManager:
         logger.debug(f"New Track: track={track.track_id}")
         return track
 
-    def update(self, candidates: List[TrackFrame]) -> None:
+    def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
 
         # store length of tracks before update
         frame_index = len(self)
@@ -349,6 +374,7 @@ class TrackManager:
                 padded_scores[track_index, candidate_index] = track.score(candidate)
 
         # assign tracks to candidates/dummies
+        start = datetime.now()
         row_ind, col_ind = linear_sum_assignment(padded_scores, maximize=True)
 
         # assign matched candidates to tracks
@@ -373,6 +399,7 @@ class TrackManager:
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
                 self.tracks.append(self._new_track(candidate, frame_index))
+        utils.log_timing(logger, "Track updates", start, frame_hash)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)

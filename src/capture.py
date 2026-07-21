@@ -34,11 +34,14 @@ def capture_thread() -> None:
 
         # maintain camera frame rate
         elapsed = utils.log_timing(logger, "Capture", timestamp)
-        delay = frame_period - elapsed
-        if delay > 0:
-            logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms")
-            time.sleep(delay)
-        else:
-            logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
+        if SYSTEM == "Linux":
+            delay = frame_period - elapsed
+            if delay > 0:
+                logger.debug(
+                    f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms"
+                )
+                time.sleep(delay)
+            else:
+                logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
 
     logger.info("Capture thread stopped")

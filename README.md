@@ -1,102 +1,149 @@
-# rpi_cat_behaviour_monitoring
-Raspberry Pi app to monitor cats with live video feed and identify poor behaviour
+# RPi Cat Behaviour Monitoring
 
-## Disable wifi powersave mode
-1. Create a systemd service file: `/etc/systemd/system/disable-wifi-powersave.service`
-1. Add content to file:
-```
-[Unit]
-Description=Disable WiFi power saving
-After=network-pre.target
-Wants=network-pre.target
+## Purpose
 
-[Service]
-Type=oneshot
-ExecStart=/usr/sbin/iw dev wlan0 set power_save off
-RemainAfterExit=yes
+A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records annotated video clips with tracking information (IDs, confidence scores, bounding boxes, cat labels). The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
 
-[Install]
-WantedBy=multi-user.target
-```
-1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable disable-wifi-powersave.service`
-1. Optionally run script immediately to test: `sudo systemctl start disable-wifi-powersave.service`
-1. Check output `iw dev wlan0 get power_save`
+## Demo
 
-## Python env setup
-`picamera2` depends on system libraries not available via pip. Install via apt and create a venv with system site-packages access:
-```
-sudo apt install -y python3-picamera2 python3-libcamera
-uv venv --python 3.13 --system-site-packages
-uv sync --no-dev
+![Cat monitoring system in action](readme.gif)
+
+## Logic and Architecture
+
+### Thread-Based Approach
+
+The system uses three threads that synchronise via thread-safe queues and event signals. This approach is taken to avoid delays and buffer in one process blocking other periodic behaviours that require specific timing.
+
+### Capture Thread
+
+Continuously acquires frames from the camera and enqueues them:
+1. Acquires raw frame from camera
+1. Enqueues the image and timestamp to `frame_queue` for processing
+
+### Processing Thread
+
+The core pipeline. For each frame dequeued, it:
+1. Identifies search regions based on observed motion, image foreground and existing tracks
+2. Crops image to area of interest and runs object detection
+3. Updates Tracks
+    - Assigns detections to existing Tracks
+    - Updates state of each Track
+    - Identifies cat
+4. Buffers and records video clips based on track state
+
+#### Object Detection
+
+Areas that have motion, are not background or contain existing tracks are searched using a detection model. If no detections have been run for a period of time, detection will be run on the entire frame.
+
+```mermaid
+flowchart TD
+    A["Dequeued Frame"] --> B["Motion detection"]
+    A --> C["Background subtraction"]
+    A --> D["Existing Track locations"]
+    B --> E{"Search area<br/>present?"}
+    C -->E
+    D -->E
+    E -->|YES| F["Run Detection"]
+    E -->|NO| G["Skip Detection"]
+    F --> H["Extract Detections"]
+    G --> H
 ```
 
-## Startup script
-1. Create script file: `/home/rpdibble/rpi_cat_behaviour_monitoring.sh`
-1. Add content to this file:
-```
-#!/bin/bash
-set -e
-git reset --hard
-git checkout main
-git pull
-/home/rpdibble/.local/bin/uv sync --no-dev
-.venv/bin/python src/app.py
-```
-1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
-1. Create a systemd service file: `/etc/systemd/system/startup.service`
-1. Add content to file:
-```
-[Unit]
-Description=Run startup script for cat behaviour monitor
-After=network-online.target
-Wants=network-online.target
+#### Tracking updates
 
-[Service]
-User=rpdibble
-WorkingDirectory=/home/rpdibble/rpi_cat_behaviour_monitoring
-ExecStart=/home/rpdibble/rpi_cat_behaviour_monitoring.sh
-Restart=on-failure
-RestartSec=10
-StartLimitBurst=3
+The system maintains persistent tracks across frames by assigning detections to existing Tracks based on:
+- Spatial overlap between detection and forecast Track location
+- Detection confidence
+- Visual similarity
+- Age of most recent detection in Track
 
-[Install]
-WantedBy=multi-user.target
+```mermaid
+flowchart TD
+    A["Frame detections<br/>and existing Tracks"] --> B["Compute match scores for<br/>all possible pairings"]
+    B --> C["Determine best global detection-Track pairing"]
+    C --> D{"Approve match<br/>found?"}
+    D -->|YES| E["Update Track"]
+    D -->|NO| F["New Track"]
 ```
-1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable startup.service`
-1. Optionally run script immediately to test: `sudo systemctl start startup.service`
-1. Check service status: `sudo systemctl status startup.service`
-1. View logs: `journalctl -u startup.service`
-1. Stop running service and disable startup execution: `sudo systemctl stop startup.service` and `sudo systemctl disable startup.service`
 
-## Cloud sync script
-1. [Install rclone](https://rclone.org/install/#script-installation)
-1. Run `rclone config` and get credentials [info](https://console.cloud.google.com/auth/clients?project=rpi-cat-behaviour-monitor) to complete
-1. Create a systemd service file: `/etc/systemd/system/rclone-sync.service`
-1. Add content to file:
-```
-[Unit]
-Description=Sync object_clips folder to Google Drive
+#### Tracking State Machine
 
-[Service]
-Type=oneshot
-User=rpdibble
-ExecStart=/usr/bin/rclone sync /home/rpdibble/rpi_cat_behaviour_monitoring/object_clips/ gdrive:rpi_cat_behaviour_monitoring/object_clips
-```
-1. Create a systemd timer file: `/etc/systemd/system/rclone-sync.timer`
-1. Add content to file:
-```
-[Unit]
-Description=Run rclone sync every minute
+Tracks move between various states based on the age and confidence of recent detections. These states determine the initialisation and termination of recording as well as annotation of the video.
 
-[Timer]
-OnBootSec=10min
-OnUnitActiveSec=10min
-Persistent=true
+| State | Description |
+|-------|-------|
+| **NEW** | Holding state until enough detections of high enough confidence are matched |
+| **ACTIVE** | Confirmed Track with detection in current Frame |
+| **STALE** | Previously active Track without current detection |
+| **EXPIRED** | Tracks that were not confirmed or were stale for too long |
 
-[Install]
-WantedBy=timers.target
+```mermaid
+stateDiagram-v2    
+    NEW --> ACTIVE: Sustained<br/>presence
+    NEW --> EXPIRED: Too few<br/>detections<br/>of required<br/>confidence
+    ACTIVE --> STALE: Detection<br/>lost
+    STALE --> ACTIVE: Detection<br/>reacquired
+    STALE --> EXPIRED: Timeout
 ```
-1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable rclone-sync.timer`
-1. Optionally start service immediately: `sudo systemctl start rclone-sync.timer`
-1. List timers: `systemctl list-timers rclone-sync.timer`
-1. View logs: `journalctl -u rclone-sync.service -f`
+
+#### Cat Classification
+
+After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting cat label is used in video annotation, so confirmed cat Tracks are displayed with identity-aware labels rather than only object class labels.
+
+#### Recording
+
+Recording is deliberately decoupled from processing via a buffer to introduce a delay in the recording. The delay enables New Tracks to reach maturity (Active or Expired) before impacting the recording. This avoids small videos initiated by false positives or splitting of large files due to brief false detections of an excluded class.
+
+The exported video relies on a few different components and conditions:
+- Rolling pre-detection buffer
+    - Maintains a rolling buffer of recent frames
+- When a track transitions to Active state
+    1. Pre-buffer frames are flushed to disk (provides context before detection)
+    1. Video recording begins
+    1. Frames are annotated with: track ID, state, frame count, confidence
+- While Active tracks exist
+    - Frames written continuously if active tracks or are of permitted class
+    - Active tracks of excluded class will terminate recording and clear buffers
+- When no ACTIVE tracks remain
+    - Video file closed
+
+## File Structure
+
+### Root Level & Configuration
+
+| File/Directory | Purpose |
+|---|---|
+| [pyproject.toml](pyproject.toml) | Python project dependencies and metadata |
+| [settings.toml](settings.toml) | Application configuration |
+| [RPi_setup.md](RPi_setup.md) | Raspberry Pi hardware setup and initialisation guide |
+| [src/](src/) | Core application source code |
+| [datasets/](datasets/) | Model training and app development datasets |
+| [models/](models/) | Trained model files for deployment |
+| [models_staging/](models_staging/) | Model experimentation and evaluation |
+| [notebooks/](notebooks/) | Jupyter notebooks for analysis, model training and app development |
+
+### Source Files
+
+| File | Purpose |
+|---|---|
+| [src/app.py](src/app.py) | Main entry point: spawns threads, coordinates graceful shutdown |
+| [src/shared.py](src/shared.py) | Shared state and synchronisation primitives: `frame_queue`, `shutdown_event`, camera instance |
+| [src/capture.py](src/capture.py) | Camera frame acquisition: reads frames and enqueues to `frame_queue` |
+| [src/processing.py](src/processing.py) | Core processing pipeline: object detection, tracking, recording |
+| [src/monitoring.py](src/monitoring.py) | Resource monitoring: logs system metrics periodically |
+| [src/camera.py](src/camera.py) | Camera abstraction layer: handles different camera backends |
+| [src/config.py](src/config.py) | Configuration loader: reads settings from `settings.toml` |
+| [src/classification.py](src/classification.py) | Cat identity classification: predicts cat labels from embedding features |
+| [src/tracking.py](src/tracking.py) | Tracking system: Hungarian algorithm, Kalman filtering, state machine |
+| [src/utils.py](src/utils.py) | Utility functions: bounding box operations, logging helpers |
+
+### Datasets
+
+| Directory | Purpose |
+|---|---|
+| **classification_data/** | Training data for cat identification and behaviour classification: contains labels and train/validation splits |
+| **coco_metadata/** | COCO object detection training data configuration files: base and variant configurations |
+| **finetune_data/** | Fine-tuning dataset with images and label annotations |
+| **finetune_data_cropped/** | Pre-processed version of fine-tuning data |
+| **mock_inputs/** | Raw video for development camera mocking |
+| **raw_video/** | Raw video files for offline processing and testing |

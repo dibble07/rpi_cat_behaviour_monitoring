@@ -210,12 +210,11 @@ __marimo__/
 .DS_Store
 
 # Data
-models/
+models_staging/
 runs/
-sample_images/
 object_clips/
-datasets/finetune_data/
-datasets/finetune_data_cropped/
+datasets/
+!datasets/coco_metadata/
 
 # Docs
 *.pdf
