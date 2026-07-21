@@ -148,10 +148,7 @@ class Track:
 
     def score(self, candidate: TrackFrame) -> float:
         iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
-        if (
-            iou >= settings.TRACK_IOU_THRESHOLD
-            and candidate.class_id == self.summary.last_valid_frame.class_id
-        ):
+        if candidate.class_id == self.summary.last_valid_frame.class_id:
             conf = candidate.confidence
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
