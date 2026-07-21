@@ -9,6 +9,7 @@ dependencies = [
     "filterpy>=1.4.5",
     "ncnn>=1.0.20260114",
     "onnxruntime>=1.27.0",
+    "scikit-learn>=1.9.0",
     "scipy>=1.16.2",
     "ultralytics>=8.4.0",
 ]
@@ -16,18 +17,15 @@ dependencies = [
 [dependency-groups]
 dev = [
     "black[jupyter]==25.12.0",
-    "executorch>=1.1.0",
     "ipykernel>=7.1.0",
     "ipywidgets>=8.1.8",
     "isort==7.0.0",
     "jupyter>=1.1.1",
-    "mnn>=3.4.1",
     "mypy==1.19.1",
     "onnx>=1.22.0",
     "onnxscript>=0.7.1",
     "optuna>=4.9.0",
     "pandas>=2.3.3",
-    "pnnx>=20260112",
     "pre-commit==4.5.0",
     "pycocotools>=2.0.11",
     "seaborn>=0.13.2",
