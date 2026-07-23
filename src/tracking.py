@@ -127,6 +127,7 @@ class TrackSummary:
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
     cat_name: Optional[str] = None
+    cat_conf: Optional[float] = None
 
 
 class Track:
@@ -289,10 +290,12 @@ class Track:
             start = datetime.now()
             result = classification.classify_embedding(avg_embedding)
             cat_name = result["cat_name"]
+            cat_conf = result["confidence"]
             utils.log_timing(logger, "Classification", start, self._frame_hash)
 
         else:
             cat_name = prev_summary.cat_name
+            cat_conf = prev_summary.cat_conf
 
         self._summary = TrackSummary(
             track_id=self.track_id,
@@ -306,6 +309,7 @@ class Track:
             confirmed=self._confirmed,
             estimated_bbox=self._next_bbox_from_kf(),
             cat_name=cat_name,
+            cat_conf=cat_conf,
         )
 
         # log updates

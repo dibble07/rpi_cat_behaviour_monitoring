@@ -382,7 +382,15 @@ class Frame:
 
                     # extract object/cat label, confidence, and text size
                     name = summary.cat_name or track_frame.object_name
-                    label = f"{name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    cat_conf_str = (
+                        f"({summary.cat_conf*100:.0f}%/" if summary.cat_conf else "("
+                    )
+                    label = (
+                        f"{name} {summary.track_id} "
+                        f"{cat_conf_str}"
+                        f"{track_frame.confidence*100:.0f}%) "
+                        f"- {summary.state.name[0]}{summary.frame_count-summary.first_detection_index}"
+                    )
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
