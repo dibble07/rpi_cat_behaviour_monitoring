@@ -278,27 +278,27 @@ class Frame:
             )[0]
 
             # process detections
-            detected_classes = set()
+            detected_objects = set()
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                class_id = int(r.cls[0].item())
+                object_id = int(r.cls[0].item())
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
                         image=self.image,
                         bbox=utils.Bbox(xyxy=bbox),
-                        class_id=class_id,
+                        object_id=object_id,
                         confidence=float(r.conf[0].item()),
                     )
                 )
-                detected_classes.add(class_id)
+                detected_objects.add(object_id)
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
 
             # log detections
-            if detected_classes:
-                logger.debug(f"({self.hash}) Object(s) detected: {detected_classes}")
+            if detected_objects:
+                logger.debug(f"({self.hash}) Object(s) detected: {detected_objects}")
         else:
             did_run_detection = False
         return track_frames, did_run_detection
@@ -347,7 +347,7 @@ class Frame:
 
                 # unpack box coords
                 x1, y1, x2, y2 = track_frame.bbox.xyxy
-                ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
+                ann_colour = utils.OBJECT_COLOUR_MAP[track_frame.object_id]
 
                 # draw track history
                 thickness = int(min(self._image_annotated.shape[:2]) / 500)
@@ -380,9 +380,9 @@ class Frame:
                         self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
                     )
 
-                    # extract object class label/confidence and text size
-                    class_name = MODEL.names[track_frame.class_id]
-                    cat_name = summary.cat_name if class_name == "cat" else class_name
+                    # extract object/cat label, confidence, and text size
+                    object_name = MODEL.names[track_frame.object_id]
+                    cat_name = summary.cat_name if object_name == "cat" else object_name
                     label = f"{cat_name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
@@ -503,7 +503,7 @@ def processing_thread():
             np.ceil(settings.FPS) * settings.TRACK_NEW_DUR
         ):
 
-            # extract frame and check for excluded classes
+            # extract frame and check for excluded objects
             frame_recording = processing_buffer.popleft()
             current_summaries_recording = [
                 track_manager.get_track(t.track_id).summary
@@ -513,8 +513,8 @@ def processing_thread():
             current_confirmed_summaries_recording = [
                 s for s in current_summaries_recording if s.confirmed
             ]
-            has_excluded_class = any(
-                s.last_valid_frame.class_id in settings.EXCLUDED_CLASSES
+            has_excluded_object = any(
+                s.last_valid_frame.object_id in settings.EXCLUDED_OBJECTS
                 for s in current_confirmed_summaries_recording
             )
 
@@ -523,13 +523,13 @@ def processing_thread():
                 for s in current_confirmed_summaries_recording
             ):
 
-                if has_excluded_class:
+                if has_excluded_object:
 
                     # clear buffers
                     processing_buffer.clear()
                     pre_buffer.clear()
                     track_manager = TrackManager()
-                    logger.info("Clearing buffer due to detection of excluded class")
+                    logger.info("Clearing buffer due to detection of excluded object")
 
                 else:
 
@@ -582,7 +582,7 @@ def processing_thread():
             if recording:
 
                 # write current frame and assess post buffer termination
-                if not has_excluded_class:
+                if not has_excluded_object:
                     start_write = datetime.now()
                     writer.write(frame_recording.image_annotated)
                     if settings.SAVE_RAW_VIDEO:
@@ -595,14 +595,14 @@ def processing_thread():
                     )
 
                 # stop recording close video file
-                if not track_manager.non_expired_tracks or has_excluded_class:
+                if not track_manager.non_expired_tracks or has_excluded_object:
                     if not track_manager.non_expired_tracks:
                         writer, writer_raw = _release_writers(
                             writer, writer_raw, "all tracks expired"
                         )
-                    elif has_excluded_class:
+                    elif has_excluded_object:
                         writer, writer_raw = _release_writers(
-                            writer, writer_raw, "excluded class detected"
+                            writer, writer_raw, "excluded object detected"
                         )
 
                     if not track_manager.non_expired_tracks:
@@ -628,7 +628,7 @@ def processing_thread():
             else:
 
                 # store current frame image and timestamp to rolling buffer
-                if not has_excluded_class:
+                if not has_excluded_object:
                     pre_buffer.append(frame_recording)
 
         # log recording rate

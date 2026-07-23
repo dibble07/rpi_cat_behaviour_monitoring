@@ -1,7 +1,7 @@
 BACKGROUND_HISTORY = 10 # Frames used for background context
 BUFFER_DUR = 5 # Seconds to keep in rolling buffer
 CONF = 0.2 # Minimum detection confidence
-EXCLUDED_CLASSES = "0" # Class IDs to exclude from recording
+EXCLUDED_OBJECTS = "0" # Object IDs to exclude from recording
 FPS = 3 # Capture frames per second
 FRAME_HEIGHT = 1296 # Camera frame height in pixels
 FRAME_WIDTH = 2304 # Camera frame width in pixels
