@@ -16,8 +16,8 @@ import numpy as np
 from ultralytics import YOLO
 
 import utils
-from config import SYSTEM, settings
-from shared import cam, display_queue, frame_queue, shutdown_event
+from config import settings
+from shared import cam, frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
@@ -474,13 +474,6 @@ def processing_thread():
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)
-
-        # send frame to display queue
-        if SYSTEM == "Darwin":
-            try:
-                display_queue.put_nowait(frame_captured.image_annotated.copy())
-            except queue.Full:
-                pass
 
         # update non-detection counter
         if did_run_detection:

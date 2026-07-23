@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime
 
-from config import SYSTEM, settings
+from config import settings
 
 # prepare output directory
 os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
@@ -27,16 +27,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 faulthandler.enable()
 
-import queue
 import threading
 import time
-
-import cv2
 
 from capture import capture_thread
 from monitoring import monitoring_thread
 from processing import processing_thread
-from shared import display_queue, shutdown_event
+from shared import shutdown_event
 
 # start threads
 capture_t = threading.Thread(target=capture_thread)
@@ -46,19 +43,10 @@ capture_t.start()
 processing_t.start()
 monitoring_t.start()
 
-# display frames and check for shutdown requests
+# keep main thread alive until shutdown is requested
 try:
     while not shutdown_event.is_set():
-        if SYSTEM == "Darwin":
-            try:
-                display_frame = display_queue.get(timeout=0.1)
-                cv2.imshow("Object monitor (q to quit)", display_frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    shutdown_event.set()
-            except queue.Empty:
-                cv2.waitKey(1)
-        else:
-            time.sleep(0.1)
+        time.sleep(0.1)
 except KeyboardInterrupt:
     shutdown_event.set()
 finally:
@@ -69,5 +57,4 @@ logger.info("Waiting for threads to finish...")
 capture_t.join(timeout=5)
 processing_t.join(timeout=5)
 monitoring_t.join(timeout=5)
-cv2.destroyAllWindows()
 logger.info("Application shutdown complete")
