@@ -21,11 +21,11 @@ def monitoring_thread() -> None:
 
         # memory usage
         rss = process.memory_info().rss / (1024 * 1024)
-        logger.debug(f"Memory: {rss:.0f} MB")
+        logger.info(f"Memory: {rss:.0f} MB")
 
         # CPU usage
         proc_cpu = process.cpu_percent(interval=None)
-        logger.debug(f"ProcCPU: {proc_cpu:.1f}%")
+        logger.info(f"ProcCPU: {proc_cpu:.1f}%")
 
         # thread counts
         num_threads = process.num_threads()
