@@ -98,14 +98,50 @@ The exported video relies on a few different components and conditions:
 - Rolling pre-detection buffer
     - Maintains a rolling buffer of recent frames
 - When a track transitions to Active state
-    1. Pre-buffer frames are flushed to disk (provides context before detection)
     1. Video recording begins
+    1. Pre-buffer frames are flushed to disk (provides context before detection)
     1. Frames are annotated with: track ID, state, frame count, confidence
 - While Active tracks exist
     - Frames written continuously if active tracks or are of permitted class
     - Active tracks of excluded class will terminate recording and clear buffers
 - When no ACTIVE tracks remain
     - Video file closed
+
+Recording start decision logic:
+
+```mermaid
+flowchart TD
+    A["Deque Frame for recording"] --> B{"Any confirmed <br>Active Tracks?"}
+    B -->M["Proceed to current frame writing"]
+    B -->|Yes| D{"Any excluded objects<br>in Active Tracks?"}
+    D -->|Yes| E["Clear processing buffers<br>and reset TrackManager"]
+    E --> M
+    D -->|No| I{"Already<br>recording?"}
+    I -->|Yes| M
+    I -->|No| K["Start recording"]
+    K --> L["Flush pre-buffer frames to disk"]
+    L --> M
+```
+
+Post-decision frame handling logic:
+
+```mermaid
+flowchart TD
+    A["Current frame writing"] --> B{"Recording open?"}
+    B -->|No| C{"Excluded object present?"}
+    C -->|Yes| D["Do not add frame to pre-buffer"]
+    C -->|No| E["Append frame to rolling pre-buffer"]
+    B -->|Yes| F{"Excluded object present?"}
+    F -->|Yes| G["Release video writers"]
+    G --> H["Proceed to next Frame"]
+    F -->|No| I["Write frame"]
+    I --> K{"Any non-expired tracks remain?"}
+    K -->|Yes| L["Continue recording"]
+    L --> H
+    K -->|No| M["Release video writers"]
+    M --> N["Queue delayed frames for replay and reset state"]
+    N --> H
+```
 
 Recorded clips are annotated include the following overlays:
 - Frame hash
