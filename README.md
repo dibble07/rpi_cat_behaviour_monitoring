@@ -107,6 +107,13 @@ The exported video relies on a few different components and conditions:
 - When no ACTIVE tracks remain
     - Video file closed
 
+Recorded clips are annotated include the following overlays:
+- Frame hash
+- Per-track lines showing recent history of object lcoation
+- Bounding box around the current object position if detected
+- Label banner
+    - ```<cat name/object type> <track_id> (<cat name confidence>/<object type confidence>) - <state initial><track age>```
+
 ## File Structure
 
 ### Root Level & Configuration
