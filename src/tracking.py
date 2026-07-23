@@ -132,11 +132,14 @@ class TrackSummary:
 class Track:
     """Ordered collection of per-frame matches for a single target."""
 
-    def __init__(self, track_id: int, frame_index: int, frame: TrackFrame) -> None:
+    def __init__(
+        self, track_id: int, frame_index: int, frame: TrackFrame, frame_hash: str
+    ) -> None:
         self.track_id = track_id
         self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
         self._confirmed: Optional[bool] = None
+        self._frame_hash = frame_hash
         self.append(frame)
 
     def __len__(self) -> int:
@@ -166,7 +169,7 @@ class Track:
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self._frames.append(frame)
-        self._update_summary(frame_hash=frame.frame_hash if frame is not None else None)
+        self._update_summary()
 
     def _init_kf(self, meas: np.ndarray) -> None:
         kf = KalmanFilter(
@@ -195,7 +198,7 @@ class Track:
             )
         )
 
-    def _update_summary(self, frame_hash: str) -> None:
+    def _update_summary(self) -> None:
         prev_summary = getattr(self, "_summary", None)
 
         # update kalman filter
@@ -286,7 +289,7 @@ class Track:
             start = datetime.now()
             result = classification.classify_embedding(avg_embedding)
             cat_name = result["cat_name"]
-            utils.log_timing(logger, "Classification", start, frame_hash)
+            utils.log_timing(logger, "Classification", start, self._frame_hash)
 
         else:
             cat_name = prev_summary.cat_name
@@ -308,11 +311,11 @@ class Track:
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({frame_hash}) Track {self.track_id} created: object={last_valid_frame.object_name} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({self._frame_hash}) Track {self.track_id} created: object={last_valid_frame.object_name} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
             state_unchanged = prev_summary.state.name[0] == state.name[0]
-            log_str = f"({frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
+            log_str = f"({self._frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
             if state_unchanged:
                 logger.debug(log_str)
             else:
@@ -351,14 +354,23 @@ class TrackManager:
             )
         return matches[0]
 
-    def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
+    def _new_track(
+        self, track_frame: TrackFrame, frame_index: int, frame_hash: str
+    ) -> Track:
         track = Track(
-            track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
+            track_id=len(self.tracks) + 1,
+            frame_index=frame_index,
+            frame=track_frame,
+            frame_hash=frame_hash,
         )
         logger.debug(f"New Track: track={track.track_id}")
         return track
 
     def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
+
+        # store frame hash on all tracks for logging
+        for track in self.tracks:
+            track._frame_hash = frame_hash
 
         # store length of tracks before update
         frame_index = len(self)
@@ -398,7 +410,7 @@ class TrackManager:
         # create new tracks for unmatched candidates
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
-                self.tracks.append(self._new_track(candidate, frame_index))
+                self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
         utils.log_timing(logger, "Track updates", start, frame_hash)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
