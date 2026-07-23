@@ -341,7 +341,9 @@ class Frame:
 
             # annotate using track summaries
             for summary in sorted(
-                self._track_summaries, key=lambda s: (s.state, s.track_id), reverse=True
+                [s for s in self._track_summaries if s.confirmed],
+                key=lambda s: (s.state, s.track_id),
+                reverse=True,
             ):
                 track_frame = summary.last_valid_frame
 
