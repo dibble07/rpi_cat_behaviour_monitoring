@@ -311,12 +311,19 @@ class Track:
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({self._frame_hash}) Track {self.track_id} created: object={last_valid_frame.object_name} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({self._frame_hash}) Track {self.track_id} created: cat={cat_name} state={state.name[0]} object_confidence={last_valid_frame.confidence:.2f}"
             )
         else:
-            state_unchanged = prev_summary.state.name[0] == state.name[0]
-            log_str = f"({self._frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
-            if state_unchanged:
+            unchanged_state = prev_summary.state == state
+            unchanged_cat = prev_summary.cat_name == cat_name
+            log_str = (
+                f"({self._frame_hash}) Track {self.track_id} update: "
+                f"cat={prev_summary.cat_name}->{cat_name} "
+                f"state={prev_summary.state.name[0]}->{state.name[0]} "
+                f"object_confidence={last_valid_frame.confidence:.2f} "
+                f"missed_frames={frame_count - latest_detection_index - 1}"
+            )
+            if unchanged_state and unchanged_cat:
                 logger.debug(log_str)
             else:
                 logger.info(log_str)
@@ -363,7 +370,6 @@ class TrackManager:
             frame=track_frame,
             frame_hash=frame_hash,
         )
-        logger.debug(f"New Track: track={track.track_id}")
         return track
 
     def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
