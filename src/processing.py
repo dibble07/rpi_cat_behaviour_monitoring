@@ -347,7 +347,9 @@ class Frame:
 
                 # unpack box coords
                 x1, y1, x2, y2 = track_frame.bbox.xyxy
-                ann_colour = utils.OBJECT_COLOUR_MAP[track_frame.object_name]
+                ann_colour = utils.CAT_COLOUR_MAP.get(
+                    summary.cat_name, utils.OBJECT_COLOUR_MAP[track_frame.object_name]
+                )
 
                 # draw track history
                 thickness = int(min(self._image_annotated.shape[:2]) / 500)
