@@ -16,13 +16,12 @@ def log_timing(
     return elapsed_sec
 
 
-# Map annotation colours based on object id
+# Map annotation colours based on object name
 OBJECT_COLOUR_MAP = defaultdict(
     lambda: (255, 0, 0),
     {
-        0: (0, 0, 255),
-        1: (0, 192, 0),
-        15: (0, 192, 0),
+        "person": (0, 0, 255),
+        "cat": (0, 192, 0),
     },
 )
 

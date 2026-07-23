@@ -11,7 +11,7 @@ _classifier = joblib.load(Path("models") / "classification_best_model.joblib")
 
 
 def classify_embedding(embedding: np.ndarray) -> dict:
-    """Classify an embedding and return cat_id, confidence, and cat name"""
+    """Classify an embedding and return the cat name and confidence"""
     embedding = np.asarray(embedding, dtype=np.float32)
 
     # reshape to 2D if needed
@@ -22,10 +22,9 @@ def classify_embedding(embedding: np.ndarray) -> dict:
     proba = _classifier.predict_proba(embedding)[0]
     cat_id = int(np.argmax(proba))
     confidence = float(proba[cat_id])
-    cat_name = _classifier.cat_names_[cat_id]
+    cat_name = _classifier.classes_[cat_id]
 
     return {
-        "cat_id": cat_id,
         "cat_name": cat_name,
         "confidence": confidence,
     }

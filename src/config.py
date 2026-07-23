@@ -10,5 +10,5 @@ SYSTEM = system()
 _SETTINGS_PATH_GENERAL = os.path.join(os.path.dirname(__file__), "settings.toml")
 settings = Dynaconf(settings_files=_SETTINGS_PATH_GENERAL)
 settings.EXCLUDED_OBJECTS = {
-    int(x.strip()) for x in settings.EXCLUDED_OBJECTS.split(",")
+    x.strip() for x in settings.EXCLUDED_OBJECTS.split(",") if x.strip()
 }

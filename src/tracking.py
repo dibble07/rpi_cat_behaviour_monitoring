@@ -76,7 +76,7 @@ class TrackFrame:
     frame_hash: str
     image: np.ndarray
     bbox: utils.Bbox
-    object_id: int
+    object_name: str
     confidence: float
     roi: np.ndarray = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
@@ -148,7 +148,7 @@ class Track:
 
     def score(self, candidate: TrackFrame) -> float:
         iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
-        if candidate.object_id == self.summary.last_valid_frame.object_id:
+        if candidate.object_name == self.summary.last_valid_frame.object_name:
             conf = candidate.confidence
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
@@ -308,7 +308,7 @@ class Track:
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({frame_hash}) Track {self.track_id} created: object_id={last_valid_frame.object_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({frame_hash}) Track {self.track_id} created: object={last_valid_frame.object_name} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
             )
         else:
             state_unchanged = prev_summary.state.name[0] == state.name[0]

@@ -281,17 +281,17 @@ class Frame:
             detected_objects = set()
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                object_id = int(r.cls[0].item())
+                object_name = MODEL.names[int(r.cls[0].item())]
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
                         image=self.image,
                         bbox=utils.Bbox(xyxy=bbox),
-                        object_id=object_id,
+                        object_name=object_name,
                         confidence=float(r.conf[0].item()),
                     )
                 )
-                detected_objects.add(object_id)
+                detected_objects.add(object_name)
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
@@ -347,7 +347,7 @@ class Frame:
 
                 # unpack box coords
                 x1, y1, x2, y2 = track_frame.bbox.xyxy
-                ann_colour = utils.OBJECT_COLOUR_MAP[track_frame.object_id]
+                ann_colour = utils.OBJECT_COLOUR_MAP[track_frame.object_name]
 
                 # draw track history
                 thickness = int(min(self._image_annotated.shape[:2]) / 500)
@@ -381,9 +381,8 @@ class Frame:
                     )
 
                     # extract object/cat label, confidence, and text size
-                    object_name = MODEL.names[track_frame.object_id]
-                    cat_name = summary.cat_name if object_name == "cat" else object_name
-                    label = f"{cat_name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    name = summary.cat_name or track_frame.object_name
+                    label = f"{name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
@@ -514,7 +513,7 @@ def processing_thread():
                 s for s in current_summaries_recording if s.confirmed
             ]
             has_excluded_object = any(
-                s.last_valid_frame.object_id in settings.EXCLUDED_OBJECTS
+                s.last_valid_frame.object_name in settings.EXCLUDED_OBJECTS
                 for s in current_confirmed_summaries_recording
             )
 
