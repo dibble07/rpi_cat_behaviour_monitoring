@@ -278,20 +278,28 @@ class Track:
         # reclassify update track or keep existing classification
         if last_frame is not None:
 
-            # calculate weighted average embedding by detection confidence
-            valid_frames = [f for f in self._frames if f is not None]
-            embeddings = np.stack(
-                [f.roi_embedding.astype(np.float32) for f in valid_frames]
-            )
-            weights = np.array([f.confidence for f in valid_frames], dtype=np.float32)
-            avg_embedding = np.average(embeddings, axis=0, weights=weights)
+            if last_frame.object_name == "cat":
 
-            # classify average embedding
-            start = datetime.now()
-            result = classification.classify_embedding(avg_embedding)
-            cat_name = result["cat_name"]
-            cat_conf = result["confidence"]
-            utils.log_timing(logger, "Classification", start, self._frame_hash)
+                # calculate weighted average embedding by detection confidence
+                valid_frames = [f for f in self._frames if f is not None]
+                embeddings = np.stack(
+                    [f.roi_embedding.astype(np.float32) for f in valid_frames]
+                )
+                weights = np.array(
+                    [f.confidence for f in valid_frames], dtype=np.float32
+                )
+                avg_embedding = np.average(embeddings, axis=0, weights=weights)
+
+                # classify average embedding
+                start = datetime.now()
+                result = classification.classify_embedding(avg_embedding)
+                cat_name = result["cat_name"]
+                cat_conf = result["confidence"]
+                utils.log_timing(logger, "Classification", start, self._frame_hash)
+
+            else:
+                cat_name = None
+                cat_conf = None
 
         else:
             cat_name = prev_summary.cat_name
