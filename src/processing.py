@@ -57,6 +57,7 @@ class FFmpegWriter:
         height: int,
         qv: int,
     ):
+        self.output_path = path
         cmd = [
             "ffmpeg",
             "-n",
@@ -270,7 +271,6 @@ class Frame:
             )[0]
 
             # process detections
-            detected_objects = set()
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
                 object_name = MODEL.names[int(r.cls[0].item())]
@@ -283,14 +283,15 @@ class Frame:
                         confidence=float(r.conf[0].item()),
                     )
                 )
-                detected_objects.add(object_name)
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
 
             # log detections
-            if detected_objects:
-                logger.debug(f"({self.hash}) Object(s) detected: {detected_objects}")
+            if track_frames:
+                logger.debug(
+                    f"({self.hash}) Object(s) detected: {', '.join(f'{f.object_name} ({f.confidence:.2f})' for f in track_frames)}"
+                )
         else:
             did_run_detection = False
         return track_frames, did_run_detection
@@ -413,16 +414,22 @@ class Frame:
 
 
 def _release_writers(
-    wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
+    wtr: Optional[FFmpegWriter],
+    wtr_r: Optional[FFmpegWriter],
+    frame_hash: Optional[str] = None,
+    log_msg: str = "",
 ) -> tuple[None, None]:
     """Release video writers if not None, with optional logging."""
-    log_msg = f": {log_msg}" if log_msg else ""
+    hash_msg = f"({frame_hash}) " if frame_hash else ""
+    log_msg = f" ({log_msg})" if log_msg else ""
     if wtr is not None:
         wtr.release()
-        logger.info(f"Saving clip{log_msg}")
+        path_msg = f": {wtr.output_path}" if wtr.output_path else ""
+        logger.warning(f"{hash_msg}Saving recording{log_msg}{path_msg}")
     if wtr_r is not None:
         wtr_r.release()
-        logger.info(f"Saving raw clip{log_msg}")
+        path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
+        logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
     return None, None
 
 
@@ -526,7 +533,7 @@ def processing_thread():
                     pre_buffer.clear()
                     track_manager = TrackManager()
                     logger.info(
-                        f"({frame_recording.hash}) Clearing buffer due to detection of excluded object"
+                        f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
 
                 else:
@@ -560,6 +567,9 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
+                            )
+                            logger.warning(
+                                f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
                             )
 
                         # flush buffer
@@ -596,14 +606,13 @@ def processing_thread():
 
                 # stop recording close video file
                 if not track_manager.non_expired_tracks or has_excluded_object:
-                    if not track_manager.non_expired_tracks:
-                        writer, writer_raw = _release_writers(
-                            writer, writer_raw, "all tracks expired"
-                        )
-                    elif has_excluded_object:
-                        writer, writer_raw = _release_writers(
-                            writer, writer_raw, "excluded object detected"
-                        )
+                    if has_excluded_object:
+                        log_msg = "excluded object detected"
+                    elif not track_manager.non_expired_tracks:
+                        log_msg = "all tracks expired"
+                    writer, writer_raw = _release_writers(
+                        writer, writer_raw, frame_recording.hash, log_msg
+                    )
 
                     if not track_manager.non_expired_tracks:
                         replayed = len(processing_buffer)
