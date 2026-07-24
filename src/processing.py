@@ -137,7 +137,7 @@ class Frame:
         utils.log_timing(logger, "Blur and hash", start, self.hash)
 
         if prev_frame is None:
-            logger.warning(f"No previous frame provided")
+            logger.warning(f"({self.hash}) No previous frame provided")
             self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy().astype(
@@ -525,7 +525,9 @@ def processing_thread():
                     processing_buffer.clear()
                     pre_buffer.clear()
                     track_manager = TrackManager()
-                    logger.info("Clearing buffer due to detection of excluded object")
+                    logger.info(
+                        f"({frame_recording.hash}) Clearing buffer due to detection of excluded object"
+                    )
 
                 else:
 
@@ -544,7 +546,9 @@ def processing_thread():
                             settings.FRAME_HEIGHT,
                             settings.MJPEG_QV,
                         )
-                        logger.warning(f"Starting recording: {out_path}")
+                        logger.warning(
+                            f"({frame_recording.hash}) Starting recording: {out_path}"
+                        )
                         if settings.SAVE_RAW_VIDEO:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
@@ -567,7 +571,7 @@ def processing_thread():
                             if settings.SAVE_RAW_VIDEO:
                                 writer_raw.write(bf.image)
                         logger.info(
-                            f"Written {pre_buffer_len} frames from pre detection buffer"
+                            f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
                         )
                         utils.log_timing(
                             logger, "Buffer writing", start_buf, frame_recording.hash
@@ -610,14 +614,14 @@ def processing_thread():
                                     (frame_replay.timestamp, frame_replay.image.copy())
                                 )
                             logger.info(
-                                f"Queued {replayed} delayed frame(s) for replay"
+                                f"({frame_recording.hash}) Queued {replayed} delayed frame(s) for replay"
                             )
                             pre_buffer.clear()
                             track_manager = TrackManager()
                             prev_frame = None
                             frames_since_detection = 0
                             logger.info(
-                                "Reset processing state before replaying delayed frames"
+                                f"({frame_recording.hash}) Reset processing state before replaying delayed frames"
                             )
                     recording = False
 
@@ -634,7 +638,7 @@ def processing_thread():
 
         # log overall FPS
         if (overall_fps := 1 / (elapsed_capture + elapsed_recording)) < settings.FPS:
-            logger.warning(f"Processing thread slow: {overall_fps:.1f} FPS")
+            logger.warning(f"Processing/recording thread slow: {overall_fps:.1f} FPS")
 
     # cleanup
     if processing_buffer:
