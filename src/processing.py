@@ -82,7 +82,6 @@ class FFmpegWriter:
             "6M",
             path,
         ]
-        logger.debug(f"FFmpegWriter cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -109,13 +108,6 @@ class FFmpegWriter:
         self._queue.put(None)
         self._thread.join()
         self._proc.stdin.close()
-        rc = self._proc.wait()
-        stderr_bytes = self._proc.stderr.read()
-        if rc != 0:
-            logger.error(
-                f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
-                f"{stderr_bytes.decode(errors='replace')[-500:]}"
-            )
 
 
 class Frame:
