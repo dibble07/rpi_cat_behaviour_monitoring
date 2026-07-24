@@ -59,7 +59,7 @@ class FFmpegWriter:
     ):
         cmd = [
             "ffmpeg",
-            "-y",
+            "-n",
             "-f",
             "rawvideo",
             "-pix_fmt",
