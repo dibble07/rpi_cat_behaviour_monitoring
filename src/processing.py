@@ -310,8 +310,6 @@ class Frame:
     @property
     def image_annotated(self) -> np.ndarray:
         if not hasattr(self, "_image_annotated"):
-            if not hasattr(self, "_track_summaries"):
-                raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
 
             # start timing
             start = datetime.now()
