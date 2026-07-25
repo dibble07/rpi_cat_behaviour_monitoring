@@ -18,13 +18,12 @@ def classify_embedding(embedding: np.ndarray) -> dict:
     if embedding.ndim == 1:
         embedding = embedding.reshape(1, -1)
 
-    # get probabilities (single model call)
+    # get probabilities and index
     proba = _classifier.predict_proba(embedding)[0]
     cat_id = int(np.argmax(proba))
-    confidence = float(proba[cat_id])
-    cat_name = _classifier.classes_[cat_id]
 
     return {
-        "cat_name": cat_name,
-        "confidence": confidence,
+        "cat_name": _classifier.classes_[cat_id],
+        "confidence": float(proba[cat_id]),
+        "proba": proba,
     }

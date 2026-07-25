@@ -80,6 +80,7 @@ class TrackFrame:
     confidence: float
     roi: np.ndarray = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
+    _cat_name_proba: Optional[np.ndarray] = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         h, w = self.image.shape[:2]
@@ -103,6 +104,16 @@ class TrackFrame:
             self._roi_embedding = embed_image(self.roi)
             utils.log_timing(logger, "Embedding", start, self.frame_hash)
         return self._roi_embedding
+
+    @property
+    def cat_name_proba(self) -> np.ndarray:
+        if self._cat_name_proba is None:
+            embedding = self.roi_embedding
+            start = datetime.now()
+            result = classification.classify_embedding(embedding)
+            self._cat_name_proba = result["proba"]
+            utils.log_timing(logger, "Identification", start, self.frame_hash)
+        return self._cat_name_proba
 
 
 class TrackState(IntEnum):
@@ -128,6 +139,8 @@ class TrackSummary:
     history: list[Optional[tuple[int, int]]]
     cat_name: Optional[str] = None
     cat_conf: Optional[float] = None
+    cat_name_entropy: Optional[str] = None
+    cat_conf_entropy: Optional[float] = None
 
 
 class Track:
@@ -275,32 +288,19 @@ class Track:
             case TrackState.EXPIRED:
                 state = TrackState.EXPIRED
 
-        # reclassify update track or keep existing classification
+        # aggregate cat name based weighted by entropy
         if last_frame is not None:
-
             if last_frame.object_name == "cat":
-
-                # calculate weighted average embedding by detection confidence
-                valid_frames = [f for f in self._frames if f is not None]
-                embeddings = np.stack(
-                    [f.roi_embedding.astype(np.float32) for f in valid_frames]
-                )
-                weights = np.array(
-                    [f.confidence for f in valid_frames], dtype=np.float32
-                )
-                avg_embedding = np.average(embeddings, axis=0, weights=weights)
-
-                # classify average embedding
-                start = datetime.now()
-                result = classification.classify_embedding(avg_embedding)
-                cat_name = result["cat_name"]
-                cat_conf = result["confidence"]
-                utils.log_timing(logger, "Classification", start, self._frame_hash)
-
+                probs = np.stack([f.cat_name_proba for f in self._frames if f])
+                ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(probs), axis=1)
+                ent_wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
+                probs_avg = np.average(probs, axis=0, weights=ent_wgt)
+                cat_id = int(np.argmax(probs_avg))
+                cat_name = classification._classifier.classes_[cat_id]
+                cat_conf = probs_avg[cat_id]
             else:
                 cat_name = None
                 cat_conf = None
-
         else:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
