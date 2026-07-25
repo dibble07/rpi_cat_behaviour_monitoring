@@ -168,7 +168,9 @@ class Track:
             iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
             a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
             centroid_sim = 1.0 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)
-            conf = candidate.confidence
+            conf = np.sqrt(
+                self.summary.last_valid_frame.confidence * candidate.confidence
+            )
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
             )

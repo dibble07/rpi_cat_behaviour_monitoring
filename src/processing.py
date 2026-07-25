@@ -298,14 +298,32 @@ class Frame:
         return track_frames, did_run_detection
 
     @property
-    def track_summaries(self) -> List[TrackSummary]:
-        if not hasattr(self, "_track_summaries"):
-            raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
-        return self._track_summaries
+    def processing_track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_processing_track_summaries"):
+            raise RuntimeError(
+                f"Processing track summaries not set yet for frame {self.hash}"
+            )
+        return self._processing_track_summaries
 
-    @track_summaries.setter
-    def track_summaries(self, track_summaries: List[TrackSummary]) -> None:
-        self._track_summaries = track_summaries
+    @processing_track_summaries.setter
+    def processing_track_summaries(
+        self, processing_track_summaries: List[TrackSummary]
+    ) -> None:
+        self._processing_track_summaries = processing_track_summaries
+
+    @property
+    def recording_track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_recording_track_summaries"):
+            raise RuntimeError(
+                f"Recording track summaries not set yet for frame {self.hash}"
+            )
+        return self._recording_track_summaries
+
+    @recording_track_summaries.setter
+    def recording_track_summaries(
+        self, recording_track_summaries: List[TrackSummary]
+    ) -> None:
+        self._recording_track_summaries = recording_track_summaries
 
     @property
     def image_annotated(self) -> np.ndarray:
@@ -332,8 +350,13 @@ class Frame:
             )
 
             # annotate using track summaries
+            r_summaries_map = {s.track_id: s for s in self.recording_track_summaries}
             for summary in sorted(
-                [s for s in self._track_summaries if s.confirmed],
+                [
+                    s
+                    for s in self.processing_track_summaries
+                    if r_summaries_map.get(s.track_id, s).confirmed
+                ],
                 key=lambda s: (s.state, s.track_id),
                 reverse=True,
             ):
@@ -478,7 +501,7 @@ def processing_thread():
         # detect objects and update tracking state
         track_frames, did_run_detection = frame_captured.detect_objects()
         track_manager.update(track_frames, frame_captured.hash)
-        frame_captured.track_summaries = [
+        frame_captured.processing_track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
         ]
 
@@ -507,13 +530,18 @@ def processing_thread():
 
             # extract frame and check for excluded objects
             frame_recording = processing_buffer.popleft()
-            current_summaries_recording = [
+            frame_recording.recording_track_summaries = [
                 track_manager.get_track(t.track_id).summary
-                for t in frame_recording.track_summaries
+                for t in frame_recording.processing_track_summaries
             ]
-            assert all([s.confirmed is not None for s in current_summaries_recording])
+            assert all(
+                [
+                    s.confirmed is not None
+                    for s in frame_recording.recording_track_summaries
+                ]
+            )
             current_confirmed_summaries_recording = [
-                s for s in current_summaries_recording if s.confirmed
+                s for s in frame_recording.recording_track_summaries if s.confirmed
             ]
             has_excluded_object = any(
                 s.last_valid_frame.object_name in settings.EXCLUDED_OBJECTS
