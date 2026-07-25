@@ -166,6 +166,8 @@ class Track:
     def score(self, candidate: TrackFrame) -> float:
         if candidate.object_name == self.summary.last_valid_frame.object_name:
             iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
+            a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
+            centroid_sim = 1.0 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)
             conf = candidate.confidence
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
@@ -179,7 +181,8 @@ class Track:
             )
             age_score = 1 - np.exp(-track_age / settings.FPS)
             score = np.average(
-                [iou, conf, visual, recency_score, age_score], weights=[4, 2, 3, 1, 1]
+                [iou, centroid_sim, conf, visual, recency_score, age_score],
+                weights=[3, 1, 1, 3, 1, 1],
             )
             return score
         else:

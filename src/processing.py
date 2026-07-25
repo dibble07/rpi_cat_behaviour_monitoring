@@ -274,11 +274,12 @@ class Frame:
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
                 object_name = MODEL.names[int(r.cls[0].item())]
+                frame_wh = (self.image.shape[1], self.image.shape[0])
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
                         image=self.image,
-                        bbox=utils.Bbox(xyxy=bbox),
+                        bbox=utils.Bbox(xyxy=bbox, frame_wh=frame_wh),
                         object_name=object_name,
                         confidence=float(r.conf[0].item()),
                     )
