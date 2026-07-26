@@ -554,7 +554,7 @@ def processing_thread():
             )
 
             if any(
-                s.state == TrackState.ACTIVE
+                s.state in [TrackState.ACTIVE, TrackState.STALE]
                 for s in current_confirmed_summaries_recording
             ):
 
