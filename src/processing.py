@@ -350,12 +350,15 @@ class Frame:
             )
 
             # annotate using track summaries
-            r_summaries_map = {s.track_id: s for s in self.recording_track_summaries}
+            r_summaries_map = {
+                s.track_id: s.state for s in self.recording_track_summaries
+            }
             for summary in sorted(
                 [
                     s
                     for s in self.processing_track_summaries
-                    if r_summaries_map.get(s.track_id, s).confirmed
+                    if r_summaries_map[s.track_id]
+                    in [TrackState.ACTIVE, TrackState.STALE]
                 ],
                 key=lambda s: (s.state, s.track_id),
                 reverse=True,
@@ -536,12 +539,14 @@ def processing_thread():
             ]
             assert all(
                 [
-                    s.confirmed is not None
+                    s.state != TrackState.NEW
                     for s in frame_recording.recording_track_summaries
                 ]
             )
             current_confirmed_summaries_recording = [
-                s for s in frame_recording.recording_track_summaries if s.confirmed
+                s
+                for s in frame_recording.recording_track_summaries
+                if s.state in [TrackState.ACTIVE, TrackState.STALE]
             ]
             has_excluded_object = any(
                 s.last_valid_frame.object_name in settings.EXCLUDED_OBJECTS
