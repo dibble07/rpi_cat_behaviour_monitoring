@@ -182,7 +182,7 @@ class Track:
             age_score = 1 - np.exp(-track_age / settings.FPS)
             score = np.average(
                 [iou, centroid_sim, conf, visual, recency_score, age_score],
-                weights=[3, 1, 1, 3, 1, 1],
+                weights=[2, 1, 2, 3, 1, 1],
             )
             return score
         else:
