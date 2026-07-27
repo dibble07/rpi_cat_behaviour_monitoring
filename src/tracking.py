@@ -163,15 +163,33 @@ class Track:
 
     def score(self, candidate: TrackFrame) -> float:
         if candidate.object_name == self.summary.last_valid_frame.object_name:
+            # bounding box
             iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
             a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
             centroid_sim = (1 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)) ** 2
+            track_area, cand_area = a[2] * a[3], b[2] * b[3]
+            size_sim = min(track_area, cand_area) / max(track_area, cand_area)
+
+            # confidence
             conf = np.sqrt(
                 self.summary.last_valid_frame.confidence * candidate.confidence
             )
-            visual = (
-                self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
-            ) ** 2
+
+            # visual similarity
+            if self.summary.last_valid_frame.object_name == "cat":
+                valid_frames = [f for f in self._frames if f is not None]
+                ent_wgt = utils.entropy_weights(
+                    np.stack([f.cat_name_proba for f in valid_frames])
+                )
+                embeddings = np.stack([f.roi_embedding for f in valid_frames])
+                ref_emb = np.average(embeddings, axis=0, weights=ent_wgt)
+                denom = np.linalg.norm(ref_emb, ord=2)
+                ref_emb = ref_emb / np.clip(denom, 1e-12, None)
+            else:
+                ref_emb = self.summary.last_valid_frame.roi_embedding
+            visual = (ref_emb @ candidate.roi_embedding) ** 2
+
+            # current track age
             latest_frame_age = (
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
@@ -180,14 +198,16 @@ class Track:
                 self.summary.latest_detection_index - self.summary.first_detection_index
             )
             age_score = 1 - np.exp(-track_age / settings.FPS)
+
+            # aggregate component scores
             score = np.average(
-                [iou, centroid_sim, conf, visual, recency_score, age_score],
-                weights=[2, 2, 2, 3, 1, 1],
+                [iou, centroid_sim, conf, visual, recency_score, age_score, size_sim],
+                weights=[2, 2, 2, 3, 1, 0.5, 1],
             )
             logger.debug(
                 f"({self._frame_hash}) Track {self.track_id} match score (candidate_conf={candidate.confidence:.3f})"
                 f": iou={iou:.3f} centroid_sim={centroid_sim:.3f} conf={conf:.3f} visual={visual:.3f} "
-                f"recency_score={recency_score:.3f} age_score={age_score:.3f} score={score:.3f}"
+                f"recency_score={recency_score:.3f} age_score={age_score:.3f} size_sim={size_sim:.3f} score={score:.3f}"
             )
             return score
         else:
@@ -302,8 +322,7 @@ class Track:
         if last_frame is not None:
             if last_frame.object_name == "cat":
                 probs = np.stack([f.cat_name_proba for f in self._frames if f])
-                ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(probs), axis=1)
-                ent_wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
+                ent_wgt = utils.entropy_weights(probs)
                 probs_avg = np.average(probs, axis=0, weights=ent_wgt)
                 cat_id = int(np.argmax(probs_avg))
                 cat_name = classification._classifier.classes_[cat_id]

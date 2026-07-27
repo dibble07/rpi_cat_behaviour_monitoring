@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Optional, Tuple
 
+import numpy as np
 import torch
 
 
@@ -173,3 +174,9 @@ def expand_bbox_from_bounds(
     assert low_ar <= target_ar <= high_ar
 
     return [int(x1), int(y1), int(x2), int(y2)]
+
+
+def entropy_weights(probs: np.ndarray) -> np.ndarray:
+    """Calculate weights based on probability entropy"""
+    ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1)), axis=1)
+    return np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
