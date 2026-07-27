@@ -165,13 +165,13 @@ class Track:
         if candidate.object_name == self.summary.last_valid_frame.object_name:
             iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
             a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
-            centroid_sim = 1.0 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)
+            centroid_sim = (1 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)) ** 2
             conf = np.sqrt(
                 self.summary.last_valid_frame.confidence * candidate.confidence
             )
             visual = (
                 self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
-            )
+            ) ** 2
             latest_frame_age = (
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
@@ -182,7 +182,12 @@ class Track:
             age_score = 1 - np.exp(-track_age / settings.FPS)
             score = np.average(
                 [iou, centroid_sim, conf, visual, recency_score, age_score],
-                weights=[2, 1, 2, 3, 1, 1],
+                weights=[2, 2, 2, 3, 1, 1],
+            )
+            logger.debug(
+                f"({self._frame_hash}) Track {self.track_id} match score (candidate_conf={candidate.confidence:.3f})"
+                f": iou={iou:.3f} centroid_sim={centroid_sim:.3f} conf={conf:.3f} visual={visual:.3f} "
+                f"recency_score={recency_score:.3f} age_score={age_score:.3f} score={score:.3f}"
             )
             return score
         else:
@@ -333,7 +338,7 @@ class Track:
             unchanged_state = prev_summary.state == state
             unchanged_cat = prev_summary.cat_name == cat_name
             log_str = (
-                f"({self._frame_hash}) Track {self.track_id} update: "
+                f"({self._frame_hash}) Track {self.track_id} summary update: "
                 f"cat={prev_summary.cat_name}->{cat_name} "
                 f"state={prev_summary.state.name[0]}->{state.name[0]} "
                 f"object_confidence={last_valid_frame.confidence:.2f} "
@@ -402,7 +407,9 @@ class TrackManager:
         track_count = len(assignable_tracks)
         candidate_count = len(candidates)
         padded_size = track_count + candidate_count
-        padded_scores = np.zeros((padded_size, padded_size), dtype=float)
+        padded_scores = (
+            np.zeros((padded_size, padded_size)) + settings.TRACK_MATCH_THRESHOLD
+        )
         for track_index, track in enumerate(assignable_tracks):
             for candidate_index, candidate in enumerate(candidates):
                 padded_scores[track_index, candidate_index] = track.score(candidate)
@@ -419,14 +426,15 @@ class TrackManager:
                 matched_tracks.add(track)
                 matched_candidates.add(candidate_index)
                 logger.debug(
-                    f"Track match: track={track.track_id} candidate={candidate_index} score={padded_scores[track_index, candidate_index]:.3f}"
+                    f"({frame_hash}) Track {track.track_id} match: candidate={candidate_index} "
+                    f"(conf={candidates[candidate_index].confidence:.3f}) score={padded_scores[track_index, candidate_index]:.3f}"
                 )
 
         # assign blank to unmatched tracks
         for track in self.tracks:
             if track not in matched_tracks:
                 track.append(None)
-                logger.debug(f"Track no match: track={track.track_id}")
+                logger.debug(f"Track {track.track_id} no matching candidate")
 
         # create new tracks for unmatched candidates
         for candidate_index, candidate in enumerate(candidates):
