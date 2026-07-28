@@ -36,9 +36,9 @@ from processing import processing_thread
 from shared import shutdown_event
 
 # start threads
-capture_t = threading.Thread(target=capture_thread)
-processing_t = threading.Thread(target=processing_thread)
-monitoring_t = threading.Thread(target=monitoring_thread)
+capture_t = threading.Thread(target=capture_thread, name="capture")
+processing_t = threading.Thread(target=processing_thread, name="processing")
+monitoring_t = threading.Thread(target=monitoring_thread, name="monitoring")
 capture_t.start()
 processing_t.start()
 monitoring_t.start()
