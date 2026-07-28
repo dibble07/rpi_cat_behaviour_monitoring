@@ -5,7 +5,7 @@ import logging
 import os
 import queue
 import subprocess
-import threading
+import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +17,14 @@ from ultralytics import YOLO
 
 import utils
 from config import settings
-from shared import cam, frame_queue, shutdown_event
+from shared import (
+    cam,
+    frame_queue,
+    set_shutdown_cause,
+    shutdown_event,
+    update_processing_heartbeat,
+    update_writer_heartbeat,
+)
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
@@ -58,6 +65,13 @@ class FFmpegWriter:
         qv: int,
     ):
         self.output_path = path
+        self._frames_written = 0
+        self._bytes_written = 0
+        self._write_errors = 0
+        self._last_write_started_mono = 0.0
+        self._last_write_finished_mono = 0.0
+        self._last_error = ""
+        self._is_released = False
         cmd = [
             "ffmpeg",
             "-n",
@@ -86,14 +100,129 @@ class FFmpegWriter:
             stderr=subprocess.PIPE,
         )
         if self._proc.poll() is not None:
-            raise RuntimeError(f"ffmpeg failed to start for {path}")
+            code = self._proc.poll()
+            err_tail = self._stderr_tail()
+            raise RuntimeError(
+                f"ffmpeg failed to start for {path} (exit={code} stderr={err_tail})"
+            )
+        logger.info(
+            "FFmpeg writer started: path=%s fps=%.2f size=%sx%s qv=%s",
+            self.output_path,
+            fps,
+            width,
+            height,
+            qv,
+        )
+        update_writer_heartbeat(f"writer-start:{Path(self.output_path).name}")
 
     def write(self, frame: np.ndarray) -> None:
-        self._proc.stdin.write(frame.tobytes())
+        if self._is_released:
+            raise RuntimeError(f"writer already released for {self.output_path}")
+        if self._proc.poll() is not None:
+            self._write_errors += 1
+            err_tail = self._stderr_tail()
+            self._last_error = (
+                f"ffmpeg exited before write (exit={self._proc.returncode})"
+            )
+            raise RuntimeError(
+                f"ffmpeg exited before write for {self.output_path} "
+                f"(exit={self._proc.returncode} stderr={err_tail})"
+            )
+
+        payload = frame.tobytes()
+        self._last_write_started_mono = time.monotonic()
+        try:
+            if self._proc.stdin is None:
+                raise RuntimeError(f"ffmpeg stdin unavailable for {self.output_path}")
+            self._proc.stdin.write(payload)
+        except (BrokenPipeError, OSError, ValueError, RuntimeError) as exc:
+            self._write_errors += 1
+            self._last_error = str(exc)
+            set_shutdown_cause("writer-write-error", force=True)
+            logger.exception(
+                "Writer write failed: path=%s frames=%s bytes_mb=%.2f",
+                self.output_path,
+                self._frames_written,
+                self._bytes_written / (1024 * 1024),
+            )
+            raise
+
+        self._last_write_finished_mono = time.monotonic()
+        self._frames_written += 1
+        self._bytes_written += len(payload)
+        update_writer_heartbeat(f"writer-write:{self._frames_written}")
 
     def release(self) -> None:
-        self._proc.stdin.close()
-        self._proc.wait()
+        if self._is_released:
+            return
+
+        try:
+            if self._proc.stdin is not None and not self._proc.stdin.closed:
+                self._proc.stdin.close()
+            self._proc.wait(timeout=settings.MONITORING_PERIOD * 4)
+        except subprocess.TimeoutExpired:
+            set_shutdown_cause("writer-release-timeout", force=True)
+            logger.error(
+                "Writer release timed out; killing ffmpeg: path=%s", self.output_path
+            )
+            self._proc.kill()
+            self._proc.wait(timeout=2)
+        finally:
+            self._is_released = True
+
+        err_tail = self._stderr_tail()
+        if self._proc.returncode not in (0, None):
+            logger.error(
+                "FFmpeg writer exited non-zero: path=%s exit=%s frames=%s bytes_mb=%.2f stderr=%s",
+                self.output_path,
+                self._proc.returncode,
+                self._frames_written,
+                self._bytes_written / (1024 * 1024),
+                err_tail,
+            )
+        else:
+            logger.info(
+                "FFmpeg writer released: path=%s frames=%s bytes_mb=%.2f write_errors=%s",
+                self.output_path,
+                self._frames_written,
+                self._bytes_written / (1024 * 1024),
+                self._write_errors,
+            )
+        update_writer_heartbeat(f"writer-release:{Path(self.output_path).name}")
+
+    def is_alive(self) -> bool:
+        return self._proc.poll() is None and not self._is_released
+
+    def stats(self) -> dict[str, float | int | str | bool]:
+        """Return writer stats for periodic diagnostics."""
+        now = time.monotonic()
+        last_done_age_s = (
+            (now - self._last_write_finished_mono)
+            if self._last_write_finished_mono > 0.0
+            else float("inf")
+        )
+        return {
+            "alive": self.is_alive(),
+            "frames": self._frames_written,
+            "bytes_mb": round(self._bytes_written / (1024 * 1024), 3),
+            "write_errors": self._write_errors,
+            "last_write_age_s": round(last_done_age_s, 3),
+            "exit_code": -1 if self._proc.returncode is None else self._proc.returncode,
+            "last_error": self._last_error,
+        }
+
+    def _stderr_tail(self, max_chars: int = 400) -> str:
+        """Read ffmpeg stderr tail after process exit for diagnostics."""
+        if self._proc.poll() is None or self._proc.stderr is None:
+            return ""
+        try:
+            data = self._proc.stderr.read()
+        except Exception:
+            return ""
+        if not data:
+            return ""
+        txt = data.decode("utf-8", errors="replace").strip()
+        return txt[-max_chars:]
 
 
 class Frame:
@@ -130,7 +259,7 @@ class Frame:
                 np.uint8
             )
 
-    def _identify_search_area(self):
+    def _identify_search_area(self) -> None:
         """Identify search area via frame differencing, background subtraction and previous tracks."""
         # start timing
         start = datetime.now()
@@ -193,7 +322,7 @@ class Frame:
             self._identify_search_area()
         return self._has_search_area
 
-    def _identify_search_bbox(self):
+    def _identify_search_bbox(self) -> None:
 
         logger.debug(f"({self.hash}) Identifying search bounding box")
 
@@ -206,7 +335,7 @@ class Frame:
         )
 
     @property
-    def search_bbox(self) -> list:
+    def search_bbox(self) -> list[int]:
         if not hasattr(self, "_search_bbox"):
             self._identify_search_bbox()
         return self._search_bbox
@@ -433,19 +562,28 @@ def _release_writers(
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
     if wtr is not None:
-        wtr.release()
-        path_msg = f": {wtr.output_path}" if wtr.output_path else ""
-        logger.warning(f"{hash_msg}Saving recording{log_msg}{path_msg}")
+        try:
+            wtr.release()
+            path_msg = f": {wtr.output_path}" if wtr.output_path else ""
+            logger.warning(f"{hash_msg}Saving recording{log_msg}{path_msg}")
+        except Exception:
+            set_shutdown_cause("writer-release-error", force=True)
+            logger.exception("%sWriter release failed%s", hash_msg, log_msg)
     if wtr_r is not None:
-        wtr_r.release()
-        path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
-        logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
+        try:
+            wtr_r.release()
+            path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
+            logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
+        except Exception:
+            set_shutdown_cause("writer-release-error", force=True)
+            logger.exception("%sRaw writer release failed%s", hash_msg, log_msg)
     return None, None
 
 
-def processing_thread():
+def processing_thread() -> None:
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
+    update_processing_heartbeat("thread-started")
 
     # initialise buffers
     pre_buffer: deque[Frame] = deque(
@@ -460,6 +598,11 @@ def processing_thread():
     writer_raw = None
     prev_frame = None
     frames_since_detection = 0
+    heartbeat_period = max(1, int(np.ceil(settings.FPS * settings.MONITORING_PERIOD)))
+    processed_frames = 0
+    writer_health_period = max(
+        1, int(np.ceil(settings.FPS * settings.MONITORING_PERIOD))
+    )
     track_manager = TrackManager()
 
     while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
@@ -495,6 +638,7 @@ def processing_thread():
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)
+        processed_frames += 1
 
         # update non-detection counter
         if did_run_detection:
@@ -574,6 +718,7 @@ def processing_thread():
                             logger.warning(
                                 f"({frame_recording.hash}) Starting recording: {out_path}"
                             )
+                            update_writer_heartbeat("recording-start:annotated")
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
@@ -589,6 +734,7 @@ def processing_thread():
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
                             )
+                            update_writer_heartbeat("recording-start:raw")
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
@@ -603,9 +749,29 @@ def processing_thread():
                                 len(pre_buffer),
                             )
                             if writer is not None:
-                                writer.write(bf.image_annotated)
+                                try:
+                                    writer.write(bf.image_annotated)
+                                except Exception:
+                                    set_shutdown_cause(
+                                        "writer-prebuffer-write-error", force=True
+                                    )
+                                    logger.exception(
+                                        "(%s) Annotated pre-buffer write failed",
+                                        frame_recording.hash,
+                                    )
+                                    raise
                             if writer_raw is not None:
-                                writer_raw.write(bf.image)
+                                try:
+                                    writer_raw.write(bf.image)
+                                except Exception:
+                                    set_shutdown_cause(
+                                        "writer-prebuffer-write-error", force=True
+                                    )
+                                    logger.exception(
+                                        "(%s) Raw pre-buffer write failed",
+                                        frame_recording.hash,
+                                    )
+                                    raise
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
                         )
@@ -622,9 +788,25 @@ def processing_thread():
                     _ = frame_recording.image_annotated
                     start_write = datetime.now()
                     if writer is not None:
-                        writer.write(frame_recording.image_annotated)
+                        try:
+                            writer.write(frame_recording.image_annotated)
+                        except Exception:
+                            set_shutdown_cause("writer-current-write-error", force=True)
+                            logger.exception(
+                                "(%s) Annotated current-frame write failed",
+                                frame_recording.hash,
+                            )
+                            raise
                     if writer_raw is not None:
-                        writer_raw.write(frame_recording.image)
+                        try:
+                            writer_raw.write(frame_recording.image)
+                        except Exception:
+                            set_shutdown_cause("writer-current-write-error", force=True)
+                            logger.exception(
+                                "(%s) Raw current-frame write failed",
+                                frame_recording.hash,
+                            )
+                            raise
                     utils.log_timing(
                         logger,
                         "Current frame writing",
@@ -677,10 +859,50 @@ def processing_thread():
         if (overall_fps := 1 / (elapsed_capture + elapsed_recording)) < settings.FPS:
             logger.warning(f"Processing/recording thread slow: {overall_fps:.1f} FPS")
 
+        # periodic heartbeat with buffer state
+        if processed_frames % heartbeat_period == 0:
+            if writer is None and writer_raw is None:
+                update_writer_heartbeat("idle-not-recording")
+            logger.info(
+                "Heartbeat: frame_queue=%s processing_buffer=%s replay_buffer=%s recording=%s",
+                frame_queue.qsize(),
+                len(processing_buffer),
+                len(replay_buffer),
+                recording,
+            )
+            update_processing_heartbeat(f"frame-{processed_frames}")
+
+        if processed_frames % writer_health_period == 0 and (
+            writer is not None or writer_raw is not None
+        ):
+            if writer is not None:
+                stats = writer.stats()
+                logger.info(
+                    "Writer health (annotated): alive=%s frames=%s bytes_mb=%.2f write_errors=%s last_write_age_s=%.2f exit_code=%s",
+                    stats["alive"],
+                    stats["frames"],
+                    stats["bytes_mb"],
+                    stats["write_errors"],
+                    stats["last_write_age_s"],
+                    stats["exit_code"],
+                )
+            if writer_raw is not None:
+                stats_raw = writer_raw.stats()
+                logger.info(
+                    "Writer health (raw): alive=%s frames=%s bytes_mb=%.2f write_errors=%s last_write_age_s=%.2f exit_code=%s",
+                    stats_raw["alive"],
+                    stats_raw["frames"],
+                    stats_raw["bytes_mb"],
+                    stats_raw["write_errors"],
+                    stats_raw["last_write_age_s"],
+                    stats_raw["exit_code"],
+                )
+
     # cleanup
     if processing_buffer:
         logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
         processing_buffer.clear()
     writer, writer_raw = _release_writers(writer, writer_raw)
+    update_processing_heartbeat("thread-stopped")
 
     logger.info("Processing thread stopped")
