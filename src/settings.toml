@@ -1,5 +1,5 @@
 BACKGROUND_HISTORY = 10 # Frames used for background context
-BUFFER_DUR = 5 # Seconds to keep in rolling buffer
+BUFFER_DUR = 3 # Seconds to keep in rolling buffer
 CONF = 0.2 # Minimum detection confidence
 EXCLUDED_OBJECTS = "person" # Object names to exclude from recording
 FPS = 4 # Capture frames per second
@@ -10,7 +10,7 @@ EMBEDDING_IMGSZ = 320 # Embedding model input image size
 LOG_LEVEL = "INFO" # Logging verbosity
 MAX_DETS = 5 # Max detections per frame
 NMS_IOU_THRESHOLD = 0.3 # IoU threshold for NMS
-MJPEG_QV = 5 # MJPEG quality value
+MJPEG_QV = 10 # MJPEG quality value
 MODEL_DETECTION_PATH = "yolo26n_subclass_ncnn_model" # Detection model location
 MODEL_EMBEDDING_PATH = "shufflenetv2_x0_5_embeddings_onnx_model" # Embedding model location
 MONITORING_PERIOD = 3 # Seconds between monitoring checks
