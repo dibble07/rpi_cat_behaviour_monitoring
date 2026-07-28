@@ -77,10 +77,6 @@ class FFmpegWriter:
             str(qv),
             "-pix_fmt",
             "yuvj420p",
-            "-maxrate",
-            "5M",
-            "-bufsize",
-            "6M",
             path,
         ]
         self._proc = subprocess.Popen(
@@ -91,24 +87,13 @@ class FFmpegWriter:
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
-        self._queue: queue.Queue = queue.Queue()
-        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
-        self._thread.start()
-
-    def _writer_loop(self) -> None:
-        while True:
-            frame = self._queue.get()
-            if frame is None:
-                break
-            self._proc.stdin.write(frame.tobytes())
 
     def write(self, frame: np.ndarray) -> None:
-        self._queue.put(frame)
+        self._proc.stdin.write(frame.tobytes())
 
     def release(self) -> None:
-        self._queue.put(None)
-        self._thread.join()
         self._proc.stdin.close()
+        self._proc.wait()
 
 
 class Frame:
