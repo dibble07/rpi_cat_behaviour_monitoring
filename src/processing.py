@@ -591,6 +591,8 @@ def processing_thread():
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
+                        for bf in pre_buffer:
+                            _ = bf.image_annotated
                         start_buf = datetime.now()
                         while pre_buffer:
                             bf = pre_buffer.popleft()
@@ -610,6 +612,7 @@ def processing_thread():
 
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
+                    _ = frame_recording.image_annotated
                     start_write = datetime.now()
                     writer.write(frame_recording.image_annotated)
                     if settings.SAVE_RAW_VIDEO:
