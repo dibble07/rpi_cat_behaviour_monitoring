@@ -76,10 +76,11 @@ class TrackFrame:
     frame_hash: str
     image: np.ndarray
     bbox: utils.Bbox
-    class_id: int
+    object_name: str
     confidence: float
     roi: np.ndarray = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
+    _cat_name_proba: Optional[np.ndarray] = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         h, w = self.image.shape[:2]
@@ -104,6 +105,16 @@ class TrackFrame:
             utils.log_timing(logger, "Embedding", start, self.frame_hash)
         return self._roi_embedding
 
+    @property
+    def cat_name_proba(self) -> np.ndarray:
+        if self._cat_name_proba is None:
+            embedding = self.roi_embedding
+            start = datetime.now()
+            result = classification.classify_embedding(embedding)
+            self._cat_name_proba = result["proba"]
+            utils.log_timing(logger, "Identification", start, self.frame_hash)
+        return self._cat_name_proba
+
 
 class TrackState(IntEnum):
     NEW = auto()
@@ -123,20 +134,24 @@ class TrackSummary:
     last_frame: Optional[TrackFrame]
     last_valid_frame: TrackFrame
     state: TrackState
-    confirmed: Optional[bool]
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
     cat_name: Optional[str] = None
+    cat_conf: Optional[float] = None
+    cat_name_entropy: Optional[str] = None
+    cat_conf_entropy: Optional[float] = None
 
 
 class Track:
     """Ordered collection of per-frame matches for a single target."""
 
-    def __init__(self, track_id: int, frame_index: int, frame: TrackFrame) -> None:
+    def __init__(
+        self, track_id: int, frame_index: int, frame: TrackFrame, frame_hash: str
+    ) -> None:
         self.track_id = track_id
         self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
-        self._confirmed: Optional[bool] = None
+        self._frame_hash = frame_hash
         self.append(frame)
 
     def __len__(self) -> int:
@@ -147,26 +162,60 @@ class Track:
         return self._summary
 
     def score(self, candidate: TrackFrame) -> float:
-        iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
-        if candidate.class_id == self.summary.last_valid_frame.class_id:
-            conf = candidate.confidence
-            visual = (
-                self.summary.last_valid_frame.roi_embedding @ candidate.roi_embedding
+        if candidate.object_name == self.summary.last_valid_frame.object_name:
+            # bounding box
+            iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
+            a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
+            centroid_sim = (1 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)) ** 2
+            track_area, cand_area = a[2] * a[3], b[2] * b[3]
+            size_sim = min(track_area, cand_area) / max(track_area, cand_area)
+
+            # confidence
+            conf = np.sqrt(
+                self.summary.last_valid_frame.confidence * candidate.confidence
             )
-            missing_frames = (
+
+            # visual similarity
+            if self.summary.last_valid_frame.object_name == "cat":
+                valid_frames = [f for f in self._frames if f is not None]
+                ent_wgt = utils.entropy_weights(
+                    np.stack([f.cat_name_proba for f in valid_frames])
+                )
+                embeddings = np.stack([f.roi_embedding for f in valid_frames])
+                ref_emb = np.average(embeddings, axis=0, weights=ent_wgt)
+                denom = np.linalg.norm(ref_emb, ord=2)
+                ref_emb = ref_emb / np.clip(denom, 1e-12, None)
+            else:
+                ref_emb = self.summary.last_valid_frame.roi_embedding
+            visual = (ref_emb @ candidate.roi_embedding) ** 2
+
+            # current track age
+            latest_frame_age = (
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
-            age_score = float(np.exp(-missing_frames / settings.FPS))
-            score = np.average(
-                [iou, conf, visual, age_score], weights=[1, 0.3, 0.3, 0.2]
+            recency_score = np.exp(-latest_frame_age / settings.FPS)
+            track_age = (
+                self.summary.latest_detection_index - self.summary.first_detection_index
             )
-            return float(score)
+            age_score = 1 - np.exp(-track_age / settings.FPS)
+
+            # aggregate component scores
+            score = np.average(
+                [iou, centroid_sim, conf, visual, recency_score, age_score, size_sim],
+                weights=[2, 2, 2, 3, 1, 0.5, 1],
+            )
+            logger.debug(
+                f"({self._frame_hash}) Track {self.track_id} match score (candidate_conf={candidate.confidence:.3f})"
+                f": iou={iou:.3f} centroid_sim={centroid_sim:.3f} conf={conf:.3f} visual={visual:.3f} "
+                f"recency_score={recency_score:.3f} age_score={age_score:.3f} size_sim={size_sim:.3f} score={score:.3f}"
+            )
+            return score
         else:
             return -1.0
 
     def append(self, frame: Optional[TrackFrame]) -> None:
         self._frames.append(frame)
-        self._update_summary(frame_hash=frame.frame_hash if frame is not None else None)
+        self._update_summary()
 
     def _init_kf(self, meas: np.ndarray) -> None:
         kf = KalmanFilter(
@@ -195,7 +244,7 @@ class Track:
             )
         )
 
-    def _update_summary(self, frame_hash: str) -> None:
+    def _update_summary(self) -> None:
         prev_summary = getattr(self, "_summary", None)
 
         # update kalman filter
@@ -246,12 +295,10 @@ class Track:
                     > new_frame_count / 4
                 ):
                     state = TrackState.ACTIVE
-                    self._confirmed = True
                 elif self._first_detection_index + new_frame_count >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
-                    self._confirmed = False
             case TrackState.ACTIVE:
                 state = (
                     TrackState.ACTIVE
@@ -271,25 +318,21 @@ class Track:
             case TrackState.EXPIRED:
                 state = TrackState.EXPIRED
 
-        # reclassify update track or keep existing classification
+        # aggregate cat name based weighted by entropy
         if last_frame is not None:
-
-            # calculate weighted average embedding by detection confidence
-            valid_frames = [f for f in self._frames if f is not None]
-            embeddings = np.stack(
-                [f.roi_embedding.astype(np.float32) for f in valid_frames]
-            )
-            weights = np.array([f.confidence for f in valid_frames], dtype=np.float32)
-            avg_embedding = np.average(embeddings, axis=0, weights=weights)
-
-            # classify average embedding
-            start = datetime.now()
-            result = classification.classify_embedding(avg_embedding)
-            cat_name = result["cat_name"]
-            utils.log_timing(logger, "Classification", start, frame_hash)
-
+            if last_frame.object_name == "cat":
+                probs = np.stack([f.cat_name_proba for f in self._frames if f])
+                ent_wgt = utils.entropy_weights(probs)
+                probs_avg = np.average(probs, axis=0, weights=ent_wgt)
+                cat_id = int(np.argmax(probs_avg))
+                cat_name = classification._classifier.classes_[cat_id]
+                cat_conf = probs_avg[cat_id]
+            else:
+                cat_name = None
+                cat_conf = None
         else:
             cat_name = prev_summary.cat_name
+            cat_conf = prev_summary.cat_conf
 
         self._summary = TrackSummary(
             track_id=self.track_id,
@@ -300,20 +343,27 @@ class Track:
             latest_detection_index=latest_detection_index,
             history=history,
             state=state,
-            confirmed=self._confirmed,
             estimated_bbox=self._next_bbox_from_kf(),
             cat_name=cat_name,
+            cat_conf=cat_conf,
         )
 
         # log updates
         if prev_summary is None:
             logger.info(
-                f"({frame_hash}) Track {self.track_id} created: class={last_valid_frame.class_id} conf={last_valid_frame.confidence:.2f} state={state.name[0]} "
+                f"({self._frame_hash}) Track {self.track_id} created: cat={cat_name} state={state.name[0]} object_confidence={last_valid_frame.confidence:.2f}"
             )
         else:
-            state_unchanged = prev_summary.state.name[0] == state.name[0]
-            log_str = f"({frame_hash}) Track {self.track_id} update: conf={last_valid_frame.confidence:.2f} state={prev_summary.state.name[0]}->{state.name[0]} missed_frames={frame_count - latest_detection_index - 1} "
-            if state_unchanged:
+            unchanged_state = prev_summary.state == state
+            unchanged_cat = prev_summary.cat_name == cat_name
+            log_str = (
+                f"({self._frame_hash}) Track {self.track_id} summary update: "
+                f"cat={prev_summary.cat_name}->{cat_name} "
+                f"state={prev_summary.state.name[0]}->{state.name[0]} "
+                f"object_confidence={last_valid_frame.confidence:.2f} "
+                f"missed_frames={frame_count - latest_detection_index - 1}"
+            )
+            if unchanged_state and unchanged_cat:
                 logger.debug(log_str)
             else:
                 logger.info(log_str)
@@ -351,14 +401,22 @@ class TrackManager:
             )
         return matches[0]
 
-    def _new_track(self, track_frame: TrackFrame, frame_index: int) -> Track:
+    def _new_track(
+        self, track_frame: TrackFrame, frame_index: int, frame_hash: str
+    ) -> Track:
         track = Track(
-            track_id=len(self.tracks) + 1, frame_index=frame_index, frame=track_frame
+            track_id=len(self.tracks) + 1,
+            frame_index=frame_index,
+            frame=track_frame,
+            frame_hash=frame_hash,
         )
-        logger.debug(f"New Track: track={track.track_id}")
         return track
 
     def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
+
+        # store frame hash on all tracks for logging
+        for track in self.tracks:
+            track._frame_hash = frame_hash
 
         # store length of tracks before update
         frame_index = len(self)
@@ -368,13 +426,14 @@ class TrackManager:
         track_count = len(assignable_tracks)
         candidate_count = len(candidates)
         padded_size = track_count + candidate_count
-        padded_scores = np.zeros((padded_size, padded_size), dtype=float)
+        padded_scores = (
+            np.zeros((padded_size, padded_size)) + settings.TRACK_MATCH_THRESHOLD
+        )
         for track_index, track in enumerate(assignable_tracks):
             for candidate_index, candidate in enumerate(candidates):
                 padded_scores[track_index, candidate_index] = track.score(candidate)
 
         # assign tracks to candidates/dummies
-        start = datetime.now()
         row_ind, col_ind = linear_sum_assignment(padded_scores, maximize=True)
 
         # assign matched candidates to tracks
@@ -386,20 +445,20 @@ class TrackManager:
                 matched_tracks.add(track)
                 matched_candidates.add(candidate_index)
                 logger.debug(
-                    f"Track match: track={track.track_id} candidate={candidate_index} score={padded_scores[track_index, candidate_index]:.3f}"
+                    f"({frame_hash}) Track {track.track_id} match: candidate={candidate_index} "
+                    f"(conf={candidates[candidate_index].confidence:.3f}) score={padded_scores[track_index, candidate_index]:.3f}"
                 )
 
         # assign blank to unmatched tracks
         for track in self.tracks:
             if track not in matched_tracks:
                 track.append(None)
-                logger.debug(f"Track no match: track={track.track_id}")
+                logger.debug(f"Track {track.track_id} no matching candidate")
 
         # create new tracks for unmatched candidates
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
-                self.tracks.append(self._new_track(candidate, frame_index))
-        utils.log_timing(logger, "Track updates", start, frame_hash)
+                self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)

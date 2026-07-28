@@ -16,6 +16,7 @@ def capture_thread() -> None:
 
     # set capture constants
     frame_period = 1 / settings.FPS
+    frame_period = frame_period / 4 if SYSTEM == "Darwin" else frame_period
 
     while not shutdown_event.is_set():
 
@@ -34,14 +35,11 @@ def capture_thread() -> None:
 
         # maintain camera frame rate
         elapsed = utils.log_timing(logger, "Capture", timestamp)
-        if SYSTEM == "Linux":
-            delay = frame_period - elapsed
-            if delay > 0:
-                logger.debug(
-                    f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms"
-                )
-                time.sleep(delay)
-            else:
-                logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
+        delay = frame_period - elapsed
+        if delay > 0:
+            logger.debug(f"Capture delayed to maintain frame rate: {delay*1000:.1f} ms")
+            time.sleep(delay)
+        else:
+            logger.warning(f"Capture thread slow: {1/elapsed:.1f} FPS")
 
     logger.info("Capture thread stopped")

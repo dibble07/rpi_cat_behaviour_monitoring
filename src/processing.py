@@ -16,8 +16,8 @@ import numpy as np
 from ultralytics import YOLO
 
 import utils
-from config import SYSTEM, settings
-from shared import cam, display_queue, frame_queue, shutdown_event
+from config import settings
+from shared import cam, frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
@@ -57,9 +57,10 @@ class FFmpegWriter:
         height: int,
         qv: int,
     ):
+        self.output_path = path
         cmd = [
             "ffmpeg",
-            "-y",
+            "-n",
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -82,7 +83,6 @@ class FFmpegWriter:
             "6M",
             path,
         ]
-        logger.debug(f"FFmpegWriter cmd: {' '.join(cmd)}")
         self._proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -109,13 +109,6 @@ class FFmpegWriter:
         self._queue.put(None)
         self._thread.join()
         self._proc.stdin.close()
-        rc = self._proc.wait()
-        stderr_bytes = self._proc.stderr.read()
-        if rc != 0:
-            logger.error(
-                f"FFmpegWriter: ffmpeg failed (returncode={rc}):\n"
-                f"{stderr_bytes.decode(errors='replace')[-500:]}"
-            )
 
 
 class Frame:
@@ -145,7 +138,7 @@ class Frame:
         utils.log_timing(logger, "Blur and hash", start, self.hash)
 
         if prev_frame is None:
-            logger.warning(f"No previous frame provided")
+            logger.warning(f"({self.hash}) No previous frame provided")
             self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy().astype(
@@ -278,46 +271,63 @@ class Frame:
             )[0]
 
             # process detections
-            detected_classes = set()
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                class_id = int(r.cls[0].item())
+                object_name = MODEL.names[int(r.cls[0].item())]
+                frame_wh = (self.image.shape[1], self.image.shape[0])
                 track_frames.append(
                     TrackFrame(
                         frame_hash=self.hash,
                         image=self.image,
-                        bbox=utils.Bbox(xyxy=bbox),
-                        class_id=class_id,
+                        bbox=utils.Bbox(xyxy=bbox, frame_wh=frame_wh),
+                        object_name=object_name,
                         confidence=float(r.conf[0].item()),
                     )
                 )
-                detected_classes.add(class_id)
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
 
             # log detections
-            if detected_classes:
-                logger.debug(f"({self.hash}) Object(s) detected: {detected_classes}")
+            if track_frames:
+                logger.debug(
+                    f"({self.hash}) Object(s) detected: {', '.join(f'{f.object_name} ({f.confidence:.2f})' for f in track_frames)}"
+                )
         else:
             did_run_detection = False
         return track_frames, did_run_detection
 
     @property
-    def track_summaries(self) -> List[TrackSummary]:
-        if not hasattr(self, "_track_summaries"):
-            raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
-        return self._track_summaries
+    def processing_track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_processing_track_summaries"):
+            raise RuntimeError(
+                f"Processing track summaries not set yet for frame {self.hash}"
+            )
+        return self._processing_track_summaries
 
-    @track_summaries.setter
-    def track_summaries(self, track_summaries: List[TrackSummary]) -> None:
-        self._track_summaries = track_summaries
+    @processing_track_summaries.setter
+    def processing_track_summaries(
+        self, processing_track_summaries: List[TrackSummary]
+    ) -> None:
+        self._processing_track_summaries = processing_track_summaries
+
+    @property
+    def recording_track_summaries(self) -> List[TrackSummary]:
+        if not hasattr(self, "_recording_track_summaries"):
+            raise RuntimeError(
+                f"Recording track summaries not set yet for frame {self.hash}"
+            )
+        return self._recording_track_summaries
+
+    @recording_track_summaries.setter
+    def recording_track_summaries(
+        self, recording_track_summaries: List[TrackSummary]
+    ) -> None:
+        self._recording_track_summaries = recording_track_summaries
 
     @property
     def image_annotated(self) -> np.ndarray:
         if not hasattr(self, "_image_annotated"):
-            if not hasattr(self, "_track_summaries"):
-                raise RuntimeError(f"Track summaries not set yet for frame {self.hash}")
 
             # start timing
             start = datetime.now()
@@ -340,14 +350,26 @@ class Frame:
             )
 
             # annotate using track summaries
+            r_summaries_map = {
+                s.track_id: s.state for s in self.recording_track_summaries
+            }
             for summary in sorted(
-                self._track_summaries, key=lambda s: (s.state, s.track_id), reverse=True
+                [
+                    s
+                    for s in self.processing_track_summaries
+                    if r_summaries_map[s.track_id]
+                    in [TrackState.ACTIVE, TrackState.STALE]
+                ],
+                key=lambda s: (s.state, s.track_id),
+                reverse=True,
             ):
                 track_frame = summary.last_valid_frame
 
                 # unpack box coords
                 x1, y1, x2, y2 = track_frame.bbox.xyxy
-                ann_colour = utils.CLASS_COLOUR_MAP[track_frame.class_id]
+                ann_colour = utils.CAT_COLOUR_MAP.get(
+                    summary.cat_name, utils.OBJECT_COLOUR_MAP[track_frame.object_name]
+                )
 
                 # draw track history
                 thickness = int(min(self._image_annotated.shape[:2]) / 500)
@@ -380,10 +402,17 @@ class Frame:
                         self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
                     )
 
-                    # extract object class label/confidence and text size
-                    class_name = MODEL.names[track_frame.class_id]
-                    cat_name = summary.cat_name if class_name == "cat" else class_name
-                    label = f"{cat_name} {summary.track_id} - {summary.state.name[0]}{summary.frame_count-summary.first_detection_index} {track_frame.confidence*100:.0f}%"
+                    # extract object/cat label, confidence, and text size
+                    name = summary.cat_name or track_frame.object_name
+                    cat_conf_str = (
+                        f"({summary.cat_conf*100:.0f}%/" if summary.cat_conf else "("
+                    )
+                    label = (
+                        f"{name} {summary.track_id} "
+                        f"{cat_conf_str}"
+                        f"{track_frame.confidence*100:.0f}%) "
+                        f"- {summary.state.name[0]}{summary.frame_count-summary.first_detection_index}"
+                    )
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
@@ -410,16 +439,22 @@ class Frame:
 
 
 def _release_writers(
-    wtr: Optional[FFmpegWriter], wtr_r: Optional[FFmpegWriter], log_msg: str = ""
+    wtr: Optional[FFmpegWriter],
+    wtr_r: Optional[FFmpegWriter],
+    frame_hash: Optional[str] = None,
+    log_msg: str = "",
 ) -> tuple[None, None]:
     """Release video writers if not None, with optional logging."""
-    log_msg = f": {log_msg}" if log_msg else ""
+    hash_msg = f"({frame_hash}) " if frame_hash else ""
+    log_msg = f" ({log_msg})" if log_msg else ""
     if wtr is not None:
         wtr.release()
-        logger.info(f"Saving clip{log_msg}")
+        path_msg = f": {wtr.output_path}" if wtr.output_path else ""
+        logger.warning(f"{hash_msg}Saving recording{log_msg}{path_msg}")
     if wtr_r is not None:
         wtr_r.release()
-        logger.info(f"Saving raw clip{log_msg}")
+        path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
+        logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
     return None, None
 
 
@@ -469,19 +504,12 @@ def processing_thread():
         # detect objects and update tracking state
         track_frames, did_run_detection = frame_captured.detect_objects()
         track_manager.update(track_frames, frame_captured.hash)
-        frame_captured.track_summaries = [
+        frame_captured.processing_track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
         ]
 
         # add captured frame to processing buffer
         processing_buffer.append(frame_captured)
-
-        # send frame to display queue
-        if SYSTEM == "Darwin":
-            try:
-                display_queue.put_nowait(frame_captured.image_annotated.copy())
-            except queue.Full:
-                pass
 
         # update non-detection counter
         if did_run_detection:
@@ -503,33 +531,42 @@ def processing_thread():
             np.ceil(settings.FPS) * settings.TRACK_NEW_DUR
         ):
 
-            # extract frame and check for excluded classes
+            # extract frame and check for excluded objects
             frame_recording = processing_buffer.popleft()
-            current_summaries_recording = [
+            frame_recording.recording_track_summaries = [
                 track_manager.get_track(t.track_id).summary
-                for t in frame_recording.track_summaries
+                for t in frame_recording.processing_track_summaries
             ]
-            assert all([s.confirmed is not None for s in current_summaries_recording])
+            assert all(
+                [
+                    s.state != TrackState.NEW
+                    for s in frame_recording.recording_track_summaries
+                ]
+            )
             current_confirmed_summaries_recording = [
-                s for s in current_summaries_recording if s.confirmed
+                s
+                for s in frame_recording.recording_track_summaries
+                if s.state in [TrackState.ACTIVE, TrackState.STALE]
             ]
-            has_excluded_class = any(
-                s.last_valid_frame.class_id in settings.EXCLUDED_CLASSES
+            has_excluded_object = any(
+                s.last_valid_frame.object_name in settings.EXCLUDED_OBJECTS
                 for s in current_confirmed_summaries_recording
             )
 
             if any(
-                s.state == TrackState.ACTIVE
+                s.state in [TrackState.ACTIVE, TrackState.STALE]
                 for s in current_confirmed_summaries_recording
             ):
 
-                if has_excluded_class:
+                if has_excluded_object:
 
                     # clear buffers
                     processing_buffer.clear()
                     pre_buffer.clear()
                     track_manager = TrackManager()
-                    logger.info("Clearing buffer due to detection of excluded class")
+                    logger.info(
+                        f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
+                    )
 
                 else:
 
@@ -548,7 +585,9 @@ def processing_thread():
                             settings.FRAME_HEIGHT,
                             settings.MJPEG_QV,
                         )
-                        logger.warning(f"Starting recording: {out_path}")
+                        logger.warning(
+                            f"({frame_recording.hash}) Starting recording: {out_path}"
+                        )
                         if settings.SAVE_RAW_VIDEO:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
@@ -561,6 +600,9 @@ def processing_thread():
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
                             )
+                            logger.warning(
+                                f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
+                            )
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
@@ -571,7 +613,7 @@ def processing_thread():
                             if settings.SAVE_RAW_VIDEO:
                                 writer_raw.write(bf.image)
                         logger.info(
-                            f"Written {pre_buffer_len} frames from pre detection buffer"
+                            f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
                         )
                         utils.log_timing(
                             logger, "Buffer writing", start_buf, frame_recording.hash
@@ -582,7 +624,7 @@ def processing_thread():
             if recording:
 
                 # write current frame and assess post buffer termination
-                if not has_excluded_class:
+                if not has_excluded_object:
                     start_write = datetime.now()
                     writer.write(frame_recording.image_annotated)
                     if settings.SAVE_RAW_VIDEO:
@@ -595,15 +637,14 @@ def processing_thread():
                     )
 
                 # stop recording close video file
-                if not track_manager.non_expired_tracks or has_excluded_class:
-                    if not track_manager.non_expired_tracks:
-                        writer, writer_raw = _release_writers(
-                            writer, writer_raw, "all tracks expired"
-                        )
-                    elif has_excluded_class:
-                        writer, writer_raw = _release_writers(
-                            writer, writer_raw, "excluded class detected"
-                        )
+                if not track_manager.non_expired_tracks or has_excluded_object:
+                    if has_excluded_object:
+                        log_msg = "excluded object detected"
+                    elif not track_manager.non_expired_tracks:
+                        log_msg = "all tracks expired"
+                    writer, writer_raw = _release_writers(
+                        writer, writer_raw, frame_recording.hash, log_msg
+                    )
 
                     if not track_manager.non_expired_tracks:
                         replayed = len(processing_buffer)
@@ -614,21 +655,21 @@ def processing_thread():
                                     (frame_replay.timestamp, frame_replay.image.copy())
                                 )
                             logger.info(
-                                f"Queued {replayed} delayed frame(s) for replay"
+                                f"({frame_recording.hash}) Queued {replayed} delayed frame(s) for replay"
                             )
                             pre_buffer.clear()
                             track_manager = TrackManager()
                             prev_frame = None
                             frames_since_detection = 0
                             logger.info(
-                                "Reset processing state before replaying delayed frames"
+                                f"({frame_recording.hash}) Reset processing state before replaying delayed frames"
                             )
                     recording = False
 
             else:
 
                 # store current frame image and timestamp to rolling buffer
-                if not has_excluded_class:
+                if not has_excluded_object:
                     pre_buffer.append(frame_recording)
 
         # log recording rate
@@ -638,7 +679,7 @@ def processing_thread():
 
         # log overall FPS
         if (overall_fps := 1 / (elapsed_capture + elapsed_recording)) < settings.FPS:
-            logger.warning(f"Processing thread slow: {overall_fps:.1f} FPS")
+            logger.warning(f"Processing/recording thread slow: {overall_fps:.1f} FPS")
 
     # cleanup
     if processing_buffer:

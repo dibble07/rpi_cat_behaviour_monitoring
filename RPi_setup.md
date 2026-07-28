@@ -55,9 +55,9 @@ Wants=network-online.target
 User=rpdibble
 WorkingDirectory=/home/rpdibble/rpi_cat_behaviour_monitoring
 ExecStart=/home/rpdibble/rpi_cat_behaviour_monitoring.sh
-Restart=on-failure
+Restart=always
 RestartSec=10
-StartLimitBurst=3
+StartLimitAction=none
 
 [Install]
 WantedBy=multi-user.target
