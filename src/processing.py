@@ -559,21 +559,22 @@ def processing_thread():
                     if not recording:
 
                         # init recordings
-                        out_path = os.path.join(
-                            settings.OUTPUT_DIR,
-                            f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
-                        )
-                        writer = FFmpegWriter(
-                            out_path,
-                            settings.FPS,
-                            settings.FRAME_WIDTH,
-                            settings.FRAME_HEIGHT,
-                            settings.MJPEG_QV,
-                        )
-                        logger.warning(
-                            f"({frame_recording.hash}) Starting recording: {out_path}"
-                        )
-                        if settings.SAVE_RAW_VIDEO:
+                        if settings.SAVE_RAW_VIDEO in {"no", "both"}:
+                            out_path = os.path.join(
+                                settings.OUTPUT_DIR,
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                            )
+                            writer = FFmpegWriter(
+                                out_path,
+                                settings.FPS,
+                                settings.FRAME_WIDTH,
+                                settings.FRAME_HEIGHT,
+                                settings.MJPEG_QV,
+                            )
+                            logger.warning(
+                                f"({frame_recording.hash}) Starting recording: {out_path}"
+                            )
+                        if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
@@ -596,8 +597,14 @@ def processing_thread():
                         start_buf = datetime.now()
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            writer.write(bf.image_annotated)
-                            if settings.SAVE_RAW_VIDEO:
+                            logger.debug(
+                                "(%s) Pre-buffer write marker: remaining_pre=%s",
+                                frame_recording.hash,
+                                len(pre_buffer),
+                            )
+                            if writer is not None:
+                                writer.write(bf.image_annotated)
+                            if writer_raw is not None:
                                 writer_raw.write(bf.image)
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
@@ -614,8 +621,9 @@ def processing_thread():
                 if not has_excluded_object:
                     _ = frame_recording.image_annotated
                     start_write = datetime.now()
-                    writer.write(frame_recording.image_annotated)
-                    if settings.SAVE_RAW_VIDEO:
+                    if writer is not None:
+                        writer.write(frame_recording.image_annotated)
+                    if writer_raw is not None:
                         writer_raw.write(frame_recording.image)
                     utils.log_timing(
                         logger,
