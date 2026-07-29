@@ -2182,6 +2182,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pycocotools" },
     { name = "seaborn" },
+    { name = "torch-pruning" },
     { name = "tqdm" },
 ]
 
@@ -2211,6 +2212,7 @@ dev = [
     { name = "pre-commit", specifier = "==4.5.0" },
     { name = "pycocotools", specifier = ">=2.0.11" },
     { name = "seaborn", specifier = ">=0.13.2" },
+    { name = "torch-pruning", specifier = ">=1.6.1" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
 
@@ -2435,6 +2437,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/6c/56bfb37073e7136e6dd86bfc6af7339946dd684e0ecf2155ac0eee687ae1/torch-2.11.0-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:2658f34ce7e2dabf4ec73b45e2ca68aedad7a5be87ea756ad656eaf32bf1e1ea", size = 419732324, upload-time = "2026-03-23T18:09:36.604Z" },
     { url = "https://files.pythonhosted.org/packages/07/f4/1b666b6d61d3394cca306ea543ed03a64aad0a201b6cd159f1d41010aeb1/torch-2.11.0-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:98bb213c3084cfe176302949bdc360074b18a9da7ab59ef2edc9d9f742504778", size = 530596026, upload-time = "2026-03-23T18:09:20.842Z" },
     { url = "https://files.pythonhosted.org/packages/48/6b/30d1459fa7e4b67e9e3fe1685ca1d8bb4ce7c62ef436c3a615963c6c866c/torch-2.11.0-cp313-cp313t-win_amd64.whl", hash = "sha256:a97b94bbf62992949b4730c6cd2cc9aee7b335921ee8dc207d930f2ed09ae2db", size = 114793702, upload-time = "2026-03-23T18:09:47.304Z" },
+]
+
+[[package]]
+name = "torch-pruning"
+version = "1.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "torch" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/43/ddacbb7f5ecbd7a1223ba57e80cadd8cfc58d05c54b8b8f529e819817f22/torch_pruning-1.6.1.tar.gz", hash = "sha256:3166ab2b700a5819d2b1db5b4a228e161bc32cc31e3022563b873ddd706fcacb", size = 89167, upload-time = "2025-09-07T17:25:48.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/bf/ac91f896d1a0c1bb4fceaac8ffd5bf8f23754d3566137e0b313b072f8f77/torch_pruning-1.6.1-py3-none-any.whl", hash = "sha256:5cb619e55bb4d1b7ce71be9782865ad4977bfe99c148fdce9c3822eab08a9c08", size = 70181, upload-time = "2025-09-07T17:25:45.819Z" },
 ]
 
 [[package]]
