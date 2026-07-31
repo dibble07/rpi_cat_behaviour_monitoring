@@ -37,8 +37,9 @@ uv sync --no-dev
 #!/bin/bash
 set -e
 git reset --hard
+git fetch origin
 git checkout test
-git pull
+git reset --hard origin/test
 /home/rpdibble/.local/bin/uv sync --no-dev
 .venv/bin/python src/app.py
 ```
