@@ -26,6 +26,7 @@ dev = [
     "onnxscript>=0.7.1",
     "optuna>=4.9.0",
     "pandas>=2.3.3",
+    "pnnx>=20260526",
     "pre-commit==4.5.0",
     "pycocotools>=2.0.11",
     "seaborn>=0.13.2",
