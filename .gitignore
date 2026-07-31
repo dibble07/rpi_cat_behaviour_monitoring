@@ -213,7 +213,7 @@ __marimo__/
 models_staging/
 runs/
 object_clips/
-datasets/
+datasets/*
 !datasets/coco_metadata/
 
 # Docs
