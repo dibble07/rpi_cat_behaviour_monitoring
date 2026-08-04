@@ -18,5 +18,6 @@ OUTPUT_DIR = "object_clips" # Output folder for clips/logs
 SAVE_RAW_VIDEO = "both" # Raw-video mode: no (annotated only) | only (raw only) | both (annotated + raw)
 TRACK_HISTORY_DUR = 5 # Seconds to retain track history
 TRACK_NEW_CONF_THRESHOLD = 0.4 # Confidence needed for new tracks
-TRACK_NEW_DUR = 2 # Allowable duration in new state
+TRACK_NEW_DUR = 4 # Allowable duration in new state
+TRACK_STALE_DUR = 8 # Allowable duration in stale state
 TRACK_MATCH_THRESHOLD = 0.55 # Minimum match score required

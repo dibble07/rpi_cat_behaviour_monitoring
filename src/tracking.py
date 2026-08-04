@@ -310,7 +310,7 @@ class Track:
                     state = TrackState.ACTIVE
                 elif (
                     frame_count - latest_detection_index - 1
-                    >= settings.BUFFER_DUR * settings.FPS
+                    >= settings.TRACK_STALE_DUR * settings.FPS
                 ):
                     state = TrackState.EXPIRED
                 else:
