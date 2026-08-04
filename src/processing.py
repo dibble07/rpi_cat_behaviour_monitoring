@@ -77,10 +77,6 @@ class FFmpegWriter:
             str(qv),
             "-pix_fmt",
             "yuvj420p",
-            "-maxrate",
-            "5M",
-            "-bufsize",
-            "6M",
             path,
         ]
         self._proc = subprocess.Popen(
@@ -91,24 +87,13 @@ class FFmpegWriter:
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
-        self._queue: queue.Queue = queue.Queue()
-        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
-        self._thread.start()
-
-    def _writer_loop(self) -> None:
-        while True:
-            frame = self._queue.get()
-            if frame is None:
-                break
-            self._proc.stdin.write(frame.tobytes())
 
     def write(self, frame: np.ndarray) -> None:
-        self._queue.put(frame)
+        self._proc.stdin.write(frame.tobytes())
 
     def release(self) -> None:
-        self._queue.put(None)
-        self._thread.join()
         self._proc.stdin.close()
+        self._proc.wait()
 
 
 class Frame:
@@ -403,16 +388,7 @@ class Frame:
                     )
 
                     # extract object/cat label, confidence, and text size
-                    name = summary.cat_name or track_frame.object_name
-                    cat_conf_str = (
-                        f"({summary.cat_conf*100:.0f}%/" if summary.cat_conf else "("
-                    )
-                    label = (
-                        f"{name} {summary.track_id} "
-                        f"{cat_conf_str}"
-                        f"{track_frame.confidence*100:.0f}%) "
-                        f"- {summary.state.name[0]}{summary.frame_count-summary.first_detection_index}"
-                    )
+                    label = f"{summary.track_id} {summary.cat_name or track_frame.object_name}"
                     (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
@@ -574,21 +550,22 @@ def processing_thread():
                     if not recording:
 
                         # init recordings
-                        out_path = os.path.join(
-                            settings.OUTPUT_DIR,
-                            f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
-                        )
-                        writer = FFmpegWriter(
-                            out_path,
-                            settings.FPS,
-                            settings.FRAME_WIDTH,
-                            settings.FRAME_HEIGHT,
-                            settings.MJPEG_QV,
-                        )
-                        logger.warning(
-                            f"({frame_recording.hash}) Starting recording: {out_path}"
-                        )
-                        if settings.SAVE_RAW_VIDEO:
+                        if settings.SAVE_RAW_VIDEO in {"no", "both"}:
+                            out_path = os.path.join(
+                                settings.OUTPUT_DIR,
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                            )
+                            writer = FFmpegWriter(
+                                out_path,
+                                settings.FPS,
+                                settings.FRAME_WIDTH,
+                                settings.FRAME_HEIGHT,
+                                settings.MJPEG_QV,
+                            )
+                            logger.warning(
+                                f"({frame_recording.hash}) Starting recording: {out_path}"
+                            )
+                        if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
@@ -606,11 +583,19 @@ def processing_thread():
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
+                        for bf in pre_buffer:
+                            _ = bf.image_annotated
                         start_buf = datetime.now()
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            writer.write(bf.image_annotated)
-                            if settings.SAVE_RAW_VIDEO:
+                            logger.debug(
+                                "(%s) Pre-buffer write marker: remaining_pre=%s",
+                                frame_recording.hash,
+                                len(pre_buffer),
+                            )
+                            if writer is not None:
+                                writer.write(bf.image_annotated)
+                            if writer_raw is not None:
                                 writer_raw.write(bf.image)
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
@@ -625,9 +610,11 @@ def processing_thread():
 
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
+                    _ = frame_recording.image_annotated
                     start_write = datetime.now()
-                    writer.write(frame_recording.image_annotated)
-                    if settings.SAVE_RAW_VIDEO:
+                    if writer is not None:
+                        writer.write(frame_recording.image_annotated)
+                    if writer_raw is not None:
                         writer_raw.write(frame_recording.image)
                     utils.log_timing(
                         logger,
