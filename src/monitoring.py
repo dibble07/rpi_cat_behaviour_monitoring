@@ -29,6 +29,7 @@ def _get_throttle_flags() -> list[str]:
 
 def monitoring_thread() -> None:
     """Monitor system resources and frame queue status."""
+    logger.info("Monitoring thread started")
     # prepare psutil and initialise previous values
     process = psutil.Process()
     psutil.cpu_percent(percpu=True)
@@ -90,6 +91,7 @@ def monitoring_thread() -> None:
 
         # log all metrics
         log = logger.warning if non_nominal else logger.info
+        log(f"monitoring_loop_ms: {(time.monotonic() - last_mono) * 1000:.0f}")
         log(f"memory_mb: {rss:.0f} ({rss_delta:+.0f})")
         log(f"cpu_utilisation_pct: {cpu:.0f} ({cpu_delta:+.0f})")
         log(f"queue_size: {q_len} ({q_delta:+d})")
@@ -102,3 +104,5 @@ def monitoring_thread() -> None:
             )
 
         time.sleep(0.5 if non_nominal else settings.MONITORING_PERIOD)
+
+    logger.info("Monitoring thread stopped")
