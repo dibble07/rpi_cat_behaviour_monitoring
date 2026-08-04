@@ -26,7 +26,9 @@ def capture_thread() -> None:
 
         # shutdown if camera source ended (can occur with video capture or device errors)
         if image is None:
-            logger.warning("Camera source ended, shutting down capture thread")
+            logger.warning(
+                f"Camera source ended with queue size: {frame_queue.qsize()}, shutting down capture thread"
+            )
             shutdown_event.set()
             continue
 
