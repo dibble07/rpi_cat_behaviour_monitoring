@@ -5,7 +5,6 @@ import logging
 import os
 import queue
 import subprocess
-import threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,7 @@ from ultralytics import YOLO
 
 import utils
 from config import settings
-from shared import cam, frame_queue, shutdown_event
+from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
