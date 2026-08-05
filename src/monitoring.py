@@ -20,11 +20,15 @@ _THROTTLE_BITS = {
 
 def _get_throttle_flags() -> list[str]:
     """Get active throttle flags"""
-    out = subprocess.run(
-        ["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=1
-    ).stdout
-    mask = int(out.strip().split("=")[1], 16)
-    return [label for bit, label in _THROTTLE_BITS.items() if mask & bit]
+    try:
+        out = subprocess.run(
+            ["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=1
+        ).stdout
+        mask = int(out.strip().split("=")[1], 16)
+        return [label for bit, label in _THROTTLE_BITS.items() if mask & bit]
+    except Exception as exc:
+        logger.warning(f"Throttle check unavailable: {exc}")
+        return ["unknown"]
 
 
 def monitoring_thread() -> None:
