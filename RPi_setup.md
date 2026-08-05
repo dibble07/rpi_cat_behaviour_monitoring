@@ -56,8 +56,11 @@ Wants=network-online.target
 User=rpdibble
 WorkingDirectory=/home/rpdibble/rpi_cat_behaviour_monitoring
 ExecStart=/home/rpdibble/rpi_cat_behaviour_monitoring.sh
+Environment=PYTHONUNBUFFERED=1
 Restart=always
-RestartSec=10
+RestartSec=30
+KillSignal=SIGINT
+TimeoutStopSec=30
 StartLimitAction=none
 
 [Install]
@@ -66,7 +69,8 @@ WantedBy=multi-user.target
 1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable startup.service`
 1. Optionally run script immediately to test: `sudo systemctl start startup.service`
 1. Check service status: `sudo systemctl status startup.service`
-1. View logs: `journalctl -u startup.service`
+1. View logs: `journalctl -u startup.service -b -o short-precise`
+1. Check restart cause fields: `systemctl show startup.service -p Result -p ExecMainCode -p ExecMainStatus -p NRestarts -p Restart -p RestartUSec`
 1. Stop running service and disable startup execution: `sudo systemctl stop startup.service` and `sudo systemctl disable startup.service`
 
 ## Cloud sync script
