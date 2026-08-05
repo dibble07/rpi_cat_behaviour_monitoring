@@ -164,11 +164,21 @@ class Track:
     def score(self, candidate: TrackFrame) -> float:
         if candidate.object_name == self.summary.last_valid_frame.object_name:
             # bounding box
-            iou = bbox_iou(self.summary.last_valid_frame.bbox, candidate.bbox)
-            a, b = self.summary.last_valid_frame.bbox.cxcywhn, candidate.bbox.cxcywhn
-            centroid_sim = (1 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)) ** 2
-            track_area, cand_area = a[2] * a[3], b[2] * b[3]
-            size_sim = min(track_area, cand_area) / max(track_area, cand_area)
+            iou = centroid_sim = size_sim = 0.0
+            for ref_bbox in [
+                self.summary.last_valid_frame.bbox,
+                self.summary.estimated_bbox,
+            ]:
+                iou = max(iou, bbox_iou(ref_bbox, candidate.bbox))
+                a, b = ref_bbox.cxcywhn, candidate.bbox.cxcywhn
+                centroid_sim = max(
+                    centroid_sim,
+                    (1 - np.hypot(a[0] - b[0], a[1] - b[1]) / np.sqrt(2.0)) ** 2,
+                )
+                track_area, cand_area = a[2] * a[3], b[2] * b[3]
+                size_sim = max(
+                    size_sim, min(track_area, cand_area) / max(track_area, cand_area)
+                )
 
             # confidence
             conf = np.sqrt(
@@ -232,7 +242,7 @@ class Track:
         kf.x[:4] = meas  # current state
         self._kf = kf
 
-    def _next_bbox_from_kf(self) -> utils.Bbox:
+    def _next_bbox_from_kf(self, frame_wh: tuple[int, int]) -> utils.Bbox:
         next_state = self._kf.F @ self._kf.x
         cx, cy, w, h = next_state[:4].flatten()
         return utils.Bbox(
@@ -241,7 +251,8 @@ class Track:
                 int(round(cy - h / 2)),
                 int(round(cx + w / 2)),
                 int(round(cy + h / 2)),
-            )
+            ),
+            frame_wh=frame_wh,
         )
 
     def _update_summary(self) -> None:
@@ -334,6 +345,7 @@ class Track:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
 
+        frame_wh = tuple(reversed(last_valid_frame.image.shape[:2]))
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
@@ -343,7 +355,7 @@ class Track:
             latest_detection_index=latest_detection_index,
             history=history,
             state=state,
-            estimated_bbox=self._next_bbox_from_kf(),
+            estimated_bbox=self._next_bbox_from_kf(frame_wh),
             cat_name=cat_name,
             cat_conf=cat_conf,
         )
@@ -463,8 +475,12 @@ class TrackManager:
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
         for track in self.non_expired_tracks:
-            x1, y1, x2, y2 = track.summary.estimated_bbox.xyxy
-            if x2 >= x1 and y2 >= y1:
-                mask[y1 : y2 + 1, x1 : x2 + 1] = 255
+            for ref_bbox in [
+                track.summary.last_valid_frame.bbox,
+                track.summary.estimated_bbox,
+            ]:
+                x1, y1, x2, y2 = ref_bbox.xyxy
+                if x2 >= x1 and y2 >= y1:
+                    mask[y1 : y2 + 1, x1 : x2 + 1] = 255
 
         return mask
