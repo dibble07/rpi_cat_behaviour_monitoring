@@ -1,6 +1,6 @@
 description: Ultralytics YOLO26n model trained on datasets/coco_metadata/finetune.yaml
 author: Ultralytics
-date: '2026-08-04T16:26:27.652180+01:00'
+date: '2026-08-05T10:32:57.357205+01:00'
 version: 8.4.113
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
@@ -9,8 +9,8 @@ task: detect
 head: Detect
 batch: 1
 imgsz:
-- 384
-- 640
+- 544
+- 960
 names:
   0: person
   1: cat

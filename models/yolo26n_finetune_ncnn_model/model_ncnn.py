@@ -5,7 +5,7 @@ import torch
 
 def test_inference():
     torch.manual_seed(0)
-    in0 = torch.rand(1, 3, 384, 640, dtype=torch.float)
+    in0 = torch.rand(1, 3, 544, 960, dtype=torch.float)
     out = []
 
     with ncnn.Net() as net:
