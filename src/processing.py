@@ -5,6 +5,7 @@ import logging
 import os
 import queue
 import subprocess
+import threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -86,11 +87,30 @@ class FFmpegWriter:
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(target=self._writer_loop, daemon=True)
+        self._thread.start()
 
-    def write(self, frame: np.ndarray) -> None:
-        self._proc.stdin.write(frame.tobytes())
+    def _writer_loop(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                break
+
+            enqueue_ts, frame_hash, frame = item
+            utils.log_timing(logger, "FFmpeg queue delay", enqueue_ts, frame_hash)
+            start = datetime.now()
+            self._proc.stdin.write(frame.tobytes())
+            utils.log_timing(logger, "FFmpeg write", start, frame_hash)
+
+    def write(self, frame: np.ndarray, frame_hash: str) -> None:
+        start = datetime.now()
+        self._queue.put((start, frame_hash, frame))
+        utils.log_timing(logger, "FFmpeg enqueue", start, frame_hash)
 
     def release(self) -> None:
+        self._queue.put(None)
+        self._thread.join()
         self._proc.stdin.close()
         self._proc.wait()
 
@@ -582,9 +602,6 @@ def processing_thread():
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
-                        for bf in pre_buffer:
-                            _ = bf.image_annotated
-                        start_buf = datetime.now()
                         while pre_buffer:
                             bf = pre_buffer.popleft()
                             logger.debug(
@@ -593,14 +610,11 @@ def processing_thread():
                                 len(pre_buffer),
                             )
                             if writer is not None:
-                                writer.write(bf.image_annotated)
+                                writer.write(bf.image_annotated, bf.hash)
                             if writer_raw is not None:
-                                writer_raw.write(bf.image)
+                                writer_raw.write(bf.image, bf.hash)
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
-                        )
-                        utils.log_timing(
-                            logger, "Buffer writing", start_buf, frame_recording.hash
                         )
 
                         recording = True
@@ -610,17 +624,12 @@ def processing_thread():
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
                     _ = frame_recording.image_annotated
-                    start_write = datetime.now()
                     if writer is not None:
-                        writer.write(frame_recording.image_annotated)
+                        writer.write(
+                            frame_recording.image_annotated, frame_recording.hash
+                        )
                     if writer_raw is not None:
-                        writer_raw.write(frame_recording.image)
-                    utils.log_timing(
-                        logger,
-                        "Current frame writing",
-                        start_write,
-                        frame_recording.hash,
-                    )
+                        writer_raw.write(frame_recording.image, frame_recording.hash)
 
                 # stop recording close video file
                 if not track_manager.non_expired_tracks or has_excluded_object:
