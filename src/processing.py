@@ -408,16 +408,19 @@ class Frame:
 
                     # extract object/cat label, confidence, and text size
                     label = f"{summary.track_id} {summary.cat_name or track_frame.object_name}"
-                    (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
+                    (w, h), baseline = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
-                    txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
                     cv2.rectangle(
-                        self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
+                        self._image_annotated,
+                        (x1, y1 - (h + baseline)),
+                        (x1 + w, y1),
+                        ann_colour,
+                        -1,
                     )
 
                     # add text
-                    txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
+                    txt_coords = (x1, y1 - baseline)
                     cv2.putText(
                         self._image_annotated,
                         label,
