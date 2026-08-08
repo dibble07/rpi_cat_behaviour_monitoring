@@ -57,6 +57,9 @@ def monitoring_thread() -> None:
         cpu = process.cpu_percent(interval=None)
         cpu_delta = cpu - prev_cpu if prev_cpu else 0.0
         prev_cpu = cpu
+        iowait_pct = float(
+            getattr(psutil.cpu_times_percent(interval=None), "iowait", 0.0)
+        )
 
         # cpu frequency
         if SYSTEM == "Linux":
@@ -87,6 +90,7 @@ def monitoring_thread() -> None:
         non_nominal = (
             rss >= 0.75 * 2 * 1024
             or cpu >= 0.75 * 4 * 100
+            or iowait_pct >= 10
             or (SYSTEM == "Linux" and temp_c >= 70)
             or q_len >= 5
             or disk_mb_s >= 50
@@ -98,6 +102,7 @@ def monitoring_thread() -> None:
         log(f"monitoring_loop_ms: {(time.monotonic() - last_mono) * 1000:.0f}")
         log(f"memory_mb: {rss:.0f} ({rss_delta:+.0f})")
         log(f"cpu_utilisation_pct: {cpu:.0f} ({cpu_delta:+.0f})")
+        log(f"cpu_iowait_pct: {iowait_pct:.1f}")
         log(f"queue_size: {q_len} ({q_delta:+d})")
         log(f"disk_write_mbps: {disk_mb_s:.0f}")
         if SYSTEM == "Linux":
