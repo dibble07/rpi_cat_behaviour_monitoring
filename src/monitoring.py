@@ -5,7 +5,12 @@ import time
 import psutil
 
 from config import SYSTEM, settings
-from shared import frame_queue, shutdown_event
+from shared import (
+    frame_queue,
+    recording_queue,
+    recording_raw_queue,
+    shutdown_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +43,8 @@ def monitoring_thread() -> None:
     process = psutil.Process()
     psutil.cpu_percent(percpu=True)
     process.cpu_percent()
-    prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = prev_q_len = 0
+    prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = 0
+    prev_q_len = prev_recording_q_len = prev_raw_recording_q_len = 0
     prev_disk_write_bytes = psutil.disk_io_counters().write_bytes
     last_mono = time.monotonic()
 
@@ -74,9 +80,15 @@ def monitoring_thread() -> None:
             prev_temp_c = temp_c
 
         # queue size
-        q_len = frame_queue.qsize()
-        q_delta = q_len - prev_q_len
-        prev_q_len = q_len
+        frame_q_len = frame_queue.qsize()
+        frame_q_delta = frame_q_len - prev_q_len
+        prev_q_len = frame_q_len
+        recording_q_len = recording_queue.qsize()
+        recording_q_delta = recording_q_len - prev_recording_q_len
+        prev_recording_q_len = recording_q_len
+        raw_recording_q_len = recording_raw_queue.qsize()
+        raw_recording_q_delta = raw_recording_q_len - prev_raw_recording_q_len
+        prev_raw_recording_q_len = raw_recording_q_len
 
         # disk write rate
         disk_bytes = psutil.disk_io_counters().write_bytes
@@ -92,7 +104,9 @@ def monitoring_thread() -> None:
             or cpu >= 0.75 * 4 * 100
             or iowait_pct >= 10
             or (SYSTEM == "Linux" and temp_c >= 70)
-            or q_len >= 5
+            or frame_q_len >= 5
+            or recording_q_len >= 5
+            or raw_recording_q_len >= 5
             or disk_mb_s >= 50
             or throttle_flags
         )
@@ -103,7 +117,11 @@ def monitoring_thread() -> None:
         log(f"memory_mb: {rss:.0f} ({rss_delta:+.0f})")
         log(f"cpu_utilisation_pct: {cpu:.0f} ({cpu_delta:+.0f})")
         log(f"cpu_iowait_pct: {iowait_pct:.1f}")
-        log(f"queue_size: {q_len} ({q_delta:+d})")
+        log(f"frame_queue_size: {frame_q_len} ({frame_q_delta:+d})")
+        log(f"recording_queue_size: {recording_q_len} ({recording_q_delta:+d})")
+        log(
+            f"raw_recording_queue_size: {raw_recording_q_len} ({raw_recording_q_delta:+d})"
+        )
         log(f"disk_write_mbps: {disk_mb_s:.0f}")
         if SYSTEM == "Linux":
             log(f"cpu_freq_mhz: {freq_mhz:.0f} ({freq_delta:+.0f})")

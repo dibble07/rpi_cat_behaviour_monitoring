@@ -17,7 +17,7 @@ from ultralytics import YOLO
 
 import utils
 from config import settings
-from shared import frame_queue, shutdown_event
+from shared import frame_queue, recording_queue, recording_raw_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,11 @@ class FFmpegWriter:
         width: int,
         height: int,
         qv: int,
+        work_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None],
     ):
         self.output_path = path
+        self._queue = work_queue
+        self._check_queue_empty()
         cmd = [
             "ffmpeg",
             "-n",
@@ -87,9 +90,15 @@ class FFmpegWriter:
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
-        self._queue: queue.Queue = queue.Queue()
         self._thread = threading.Thread(target=self._writer_loop, daemon=True)
         self._thread.start()
+
+    def _check_queue_empty(self) -> None:
+        pending = self._queue.qsize()
+        if pending:
+            logger.warning(
+                f"Recording queue not empty: {pending} item(s) for {self.output_path}"
+            )
 
     def _writer_loop(self) -> None:
         while True:
@@ -113,6 +122,7 @@ class FFmpegWriter:
         self._thread.join()
         self._proc.stdin.close()
         self._proc.wait()
+        self._check_queue_empty()
 
 
 class Frame:
@@ -583,6 +593,7 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
+                                recording_queue,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting recording: {out_path}"
@@ -598,6 +609,7 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
+                                recording_raw_queue,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"

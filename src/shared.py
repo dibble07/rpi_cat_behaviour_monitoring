@@ -39,6 +39,10 @@ def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
 
 # prepare threadsafe queues
 frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
+recording_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None] = queue.Queue()
+recording_raw_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None] = (
+    queue.Queue()
+)
 
 # prepare terminal shutdown
 shutdown_event = threading.Event()
