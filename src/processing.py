@@ -47,7 +47,7 @@ _GREY_H = 480
 
 
 class FFmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG."""
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg MPEG-4 encoding."""
 
     def __init__(
         self,
@@ -72,11 +72,11 @@ class FFmpegWriter:
             "-i",
             "pipe:0",
             "-c:v",
-            "mjpeg",
+            "mpeg4",
             "-q:v",
             str(qv),
             "-pix_fmt",
-            "yuvj420p",
+            "yuv420p",
             path,
         ]
         self._proc = subprocess.Popen(
@@ -572,7 +572,7 @@ def processing_thread():
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             out_path = os.path.join(
                                 settings.OUTPUT_DIR,
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
                             )
                             writer = FFmpegWriter(
                                 out_path,
@@ -587,7 +587,7 @@ def processing_thread():
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
                                 settings.OUTPUT_DIR,
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.mp4",
                             )
                             writer_raw = FFmpegWriter(
                                 out_raw_path,
