@@ -1,10 +1,40 @@
 import logging
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
+
+
+def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
+    """Return video paths from selected dataset sources"""
+
+    # identify source directories
+    datasets_root = Path("datasets")
+    source_dirs = []
+    if mock_inputs:
+        source_dirs.append(datasets_root / "mock_inputs")
+    if raw_video:
+        source_dirs.append(datasets_root / "raw_video")
+    if not source_dirs:
+        raise FileNotFoundError(f"No source directories found for selected sources")
+
+    # identify all paths with matching extensions
+    exts = ("*.avi", "*.mp4")
+    video_paths = [
+        path
+        for source_dir in source_dirs
+        for ext in exts
+        for path in source_dir.glob(ext)
+    ]
+    if not video_paths:
+        raise FileNotFoundError(
+            f"No paths found in selected sources with extension(s): {exts}"
+        )
+
+    return sorted(video_paths)
 
 
 def log_timing(
