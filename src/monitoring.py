@@ -1,4 +1,6 @@
 import logging
+import os
+import re
 import subprocess
 import time
 
@@ -14,6 +16,10 @@ from shared import (
 
 logger = logging.getLogger(__name__)
 
+_INT_MOUNT = "/"
+_EXT_MOUNT = "/mnt/hdd"
+
+
 # vcgencmd get_throttled bitmask — current-state bits (0–3) only
 _THROTTLE_BITS = {
     0x1: "under-voltage",
@@ -21,6 +27,17 @@ _THROTTLE_BITS = {
     0x4: "throttled",
     0x8: "soft-temp-limit",
 }
+
+
+def _base_device_name(device_path: str) -> str:
+    """Convert partition device path to base block device name."""
+    resolved = os.path.realpath(device_path)
+    dev = resolved.split("/")[-1]
+    if m := re.match(r"^(mmcblk\d+)p\d+$", dev):
+        return m.group(1)
+    if m := re.match(r"^(nvme\d+n\d+)p\d+$", dev):
+        return m.group(1)
+    return re.sub(r"\d+$", "", dev)
 
 
 def _get_throttle_flags() -> list[str]:
@@ -39,13 +56,27 @@ def _get_throttle_flags() -> list[str]:
 def monitoring_thread() -> None:
     """Monitor system resources and frame queue status."""
     logger.info("Monitoring thread started")
+
+    # identify internal/external device names
+    part = {p.mountpoint: p.device for p in psutil.disk_partitions()}
+    _init_counters = psutil.disk_io_counters(perdisk=True)
+    int_dev = _base_device_name(part[_INT_MOUNT]) if _INT_MOUNT in part else None
+    int_dev = int_dev if int_dev and int_dev in _init_counters else None
+    ext_dev = _base_device_name(part[_EXT_MOUNT]) if _EXT_MOUNT in part else None
+    ext_dev = ext_dev if ext_dev and ext_dev in _init_counters else None
+    if not int_dev or not ext_dev:
+        logger.warning(
+            f"Missing storage device: internal device = {int_dev}, external device = {ext_dev}"
+        )
+
     # prepare psutil and initialise previous values
     process = psutil.Process()
     psutil.cpu_percent(percpu=True)
     process.cpu_percent()
     prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = 0
     prev_q_len = prev_recording_q_len = prev_raw_recording_q_len = 0
-    prev_disk_write_bytes = psutil.disk_io_counters().write_bytes
+    prev_int_write_bytes = _init_counters[int_dev].write_bytes if int_dev else None
+    prev_ext_write_bytes = _init_counters[ext_dev].write_bytes if ext_dev else None
     last_mono = time.monotonic()
 
     while not shutdown_event.is_set():
@@ -90,10 +121,24 @@ def monitoring_thread() -> None:
         raw_recording_q_delta = raw_recording_q_len - prev_raw_recording_q_len
         prev_raw_recording_q_len = raw_recording_q_len
 
-        # disk write rate
-        disk_bytes = psutil.disk_io_counters().write_bytes
-        disk_mb_s = (disk_bytes - prev_disk_write_bytes) / (1024 * 1024) / elapsed
-        prev_disk_write_bytes = disk_bytes
+        # disk write rate and free space
+        _counters = psutil.disk_io_counters(perdisk=True)
+        if int_dev:
+            int_write_mb_s = (
+                (_counters[int_dev].write_bytes - prev_int_write_bytes)
+                / (1024**2)
+                / elapsed
+            )
+            prev_int_write_bytes = _counters[int_dev].write_bytes
+            int_free_gb = psutil.disk_usage(_INT_MOUNT).free / (1024**3)
+        if ext_dev:
+            ext_write_mb_s = (
+                (_counters[ext_dev].write_bytes - prev_ext_write_bytes)
+                / (1024**2)
+                / elapsed
+            )
+            prev_ext_write_bytes = _counters[ext_dev].write_bytes
+            ext_free_gb = psutil.disk_usage(_EXT_MOUNT).free / (1024**3)
 
         # throttle state
         throttle_flags = _get_throttle_flags() if SYSTEM == "Linux" else []
@@ -107,7 +152,10 @@ def monitoring_thread() -> None:
             or frame_q_len >= 5
             or recording_q_len >= 5
             or raw_recording_q_len >= 5
-            or disk_mb_s >= 50
+            or (int_dev is not None and int_write_mb_s >= 0.75 * 30)
+            or (ext_dev is not None and ext_write_mb_s >= 0.75 * 70)
+            or (int_dev is not None and int_free_gb < 1.0)
+            or (ext_dev is not None and ext_free_gb < 5.0)
             or throttle_flags
         )
 
@@ -122,7 +170,12 @@ def monitoring_thread() -> None:
         log(
             f"raw_recording_queue_size: {raw_recording_q_len} ({raw_recording_q_delta:+d})"
         )
-        log(f"disk_write_mbps: {disk_mb_s:.0f}")
+        if int_dev:
+            log(f"int_write_mbps: {int_write_mb_s:.0f}")
+            log(f"int_free_gb: {int_free_gb:.1f}")
+        if ext_dev:
+            log(f"ext_write_mbps: {ext_write_mb_s:.0f}")
+            log(f"ext_free_gb: {ext_free_gb:.1f}")
         if SYSTEM == "Linux":
             log(f"cpu_freq_mhz: {freq_mhz:.0f} ({freq_delta:+.0f})")
             log(f"cpu_temp_c: {temp_c:.0f} ({temp_delta:+.0f})")

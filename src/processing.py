@@ -446,6 +446,21 @@ class Frame:
         return self._image_annotated
 
 
+_HDD_MOUNT = "/mnt/hdd"
+
+
+def _get_output_dir() -> str:
+    if os.path.ismount(_HDD_MOUNT):
+        dir = os.path.join(_HDD_MOUNT, settings.OUTPUT_DIR)
+    else:
+        dir = settings.OUTPUT_DIR
+        logger.warning(
+            f"HDD not mounted at {_HDD_MOUNT}, falling back to SD card output dir"
+        )
+    os.makedirs(dir, exist_ok=True)
+    return dir
+
+
 def _release_writers(
     wtr: Optional[FFmpegWriter],
     wtr_r: Optional[FFmpegWriter],
@@ -584,7 +599,7 @@ def processing_thread():
                         # init recordings
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             out_path = os.path.join(
-                                settings.OUTPUT_DIR,
+                                _get_output_dir(),
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
                             )
                             writer = FFmpegWriter(
@@ -600,7 +615,7 @@ def processing_thread():
                             )
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
-                                settings.OUTPUT_DIR,
+                                _get_output_dir(),
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.mp4",
                             )
                             writer_raw = FFmpegWriter(
