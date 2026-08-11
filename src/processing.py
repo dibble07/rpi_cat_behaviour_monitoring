@@ -677,7 +677,7 @@ def processing_thread():
                             while processing_buffer:
                                 frame_replay = processing_buffer.popleft()
                                 replay_buffer.append(
-                                    (frame_replay.timestamp, frame_replay.image.copy())
+                                    (frame_replay.timestamp, frame_replay.image)
                                 )
                             logger.info(
                                 f"({frame_recording.hash}) Queued {replayed} delayed frame(s) for replay"
