@@ -161,7 +161,6 @@ def monitoring_thread() -> None:
 
         # log all metrics
         log = logger.warning if non_nominal else logger.info
-        log(f"monitoring_loop_ms: {(time.monotonic() - last_mono) * 1000:.0f}")
         log(f"memory_mb: {rss:.0f} ({rss_delta:+.0f})")
         log(f"cpu_utilisation_pct: {cpu:.0f} ({cpu_delta:+.0f})")
         log(f"cpu_iowait_pct: {iowait_pct:.1f}")
@@ -182,6 +181,7 @@ def monitoring_thread() -> None:
             log(
                 f"throttle_state: {'|'.join(throttle_flags) if throttle_flags else 'ok'}"
             )
+        log(f"monitoring_loop_ms: {(time.monotonic() - last_mono) * 1000:.0f}")
 
         time.sleep(0.5 if non_nominal else settings.MONITORING_PERIOD)
 
