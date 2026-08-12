@@ -506,7 +506,7 @@ def processing_thread():
         try:
             if replay_buffer:
                 timestamp, image = replay_buffer.popleft()
-                logger.debug("Processing replay frame")
+                logger.info("Processing replay frame")
             else:
                 timestamp, image = frame_queue.get(timeout=0.1)
             start_capture = datetime.now()
