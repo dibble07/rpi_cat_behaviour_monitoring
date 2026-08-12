@@ -37,12 +37,19 @@ def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
     shutdown_event.set()
 
 
-# prepare threadsafe queues
+# prepare threadsafe queues and queue-size telemetry
 frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
-recording_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None] = queue.Queue()
-recording_raw_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None] = (
-    queue.Queue()
-)
+recording_queue_size = 0
+recording_raw_queue_size = 0
+
+
+def set_recording_queue_size(size: int, raw: bool) -> None:
+    global recording_queue_size, recording_raw_queue_size
+    if raw:
+        recording_raw_queue_size = size
+    else:
+        recording_queue_size = size
+
 
 # prepare terminal shutdown
 shutdown_event = threading.Event()

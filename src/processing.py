@@ -17,7 +17,7 @@ from ultralytics import YOLO
 
 import utils
 from config import settings
-from shared import frame_queue, recording_queue, recording_raw_queue, shutdown_event
+from shared import frame_queue, set_recording_queue_size, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
 logger = logging.getLogger(__name__)
@@ -56,10 +56,12 @@ class FFmpegWriter:
         width: int,
         height: int,
         qv: int,
-        work_queue: queue.Queue[tuple[datetime, str, np.ndarray] | None],
+        raw: bool = False,
     ):
         self.output_path = path
-        self._queue = work_queue
+        self._raw = raw
+        self._queue: queue.Queue = queue.Queue(maxsize=25)
+        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         self._check_queue_empty()
         cmd = [
             "ffmpeg",
@@ -103,6 +105,7 @@ class FFmpegWriter:
     def _writer_loop(self) -> None:
         while True:
             item = self._queue.get()
+            set_recording_queue_size(self._queue.qsize(), raw=self._raw)
             if item is None:
                 break
 
@@ -115,13 +118,16 @@ class FFmpegWriter:
     def write(self, frame: np.ndarray, frame_hash: str) -> None:
         start = datetime.now()
         self._queue.put((start, frame_hash, frame))
+        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         utils.log_timing(logger, "FFmpeg enqueue", start, frame_hash)
 
     def release(self) -> None:
         self._queue.put(None)
+        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         self._thread.join()
         self._proc.stdin.close()
         self._proc.wait()
+        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         self._check_queue_empty()
 
 
@@ -608,7 +614,7 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
-                                recording_queue,
+                                raw=False,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting recording: {out_path}"
@@ -624,7 +630,7 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
-                                recording_raw_queue,
+                                raw=True,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"

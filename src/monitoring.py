@@ -9,8 +9,8 @@ import psutil
 from config import SYSTEM, settings
 from shared import (
     frame_queue,
-    recording_queue,
-    recording_raw_queue,
+    recording_queue_size,
+    recording_raw_queue_size,
     shutdown_event,
 )
 
@@ -119,10 +119,10 @@ def monitoring_thread() -> None:
         frame_q_len = frame_queue.qsize()
         frame_q_delta = frame_q_len - prev_q_len
         prev_q_len = frame_q_len
-        recording_q_len = recording_queue.qsize()
+        recording_q_len = recording_queue_size
         recording_q_delta = recording_q_len - prev_recording_q_len
         prev_recording_q_len = recording_q_len
-        raw_recording_q_len = recording_raw_queue.qsize()
+        raw_recording_q_len = recording_raw_queue_size
         raw_recording_q_delta = raw_recording_q_len - prev_raw_recording_q_len
         prev_raw_recording_q_len = raw_recording_q_len
 
