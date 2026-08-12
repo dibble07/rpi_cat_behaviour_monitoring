@@ -20,15 +20,6 @@ _INT_MOUNT = "/"
 _EXT_MOUNT = "/mnt/hdd"
 
 
-# vcgencmd get_throttled bitmask — current-state bits (0–3) only
-_THROTTLE_BITS = {
-    0x1: "under-voltage",
-    0x2: "freq-capped",
-    0x4: "throttled",
-    0x8: "soft-temp-limit",
-}
-
-
 def _base_device_name(device_path: str) -> str:
     """Convert partition device path to base block device name."""
     resolved = os.path.realpath(device_path)
@@ -38,19 +29,6 @@ def _base_device_name(device_path: str) -> str:
     if m := re.match(r"^(nvme\d+n\d+)p\d+$", dev):
         return m.group(1)
     return re.sub(r"\d+$", "", dev)
-
-
-def _get_throttle_flags() -> list[str]:
-    """Get active throttle flags"""
-    try:
-        out = subprocess.run(
-            ["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=1
-        ).stdout
-        mask = int(out.strip().split("=")[1], 16)
-        return [label for bit, label in _THROTTLE_BITS.items() if mask & bit]
-    except Exception as exc:
-        logger.warning(f"Throttle check unavailable: {exc}")
-        return ["unknown"]
 
 
 def monitoring_thread() -> None:
@@ -76,9 +54,7 @@ def monitoring_thread() -> None:
     prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = 0
     prev_q_len = prev_recording_q_len = prev_raw_recording_q_len = 0
     prev_int_write_bytes = _init_counters[int_dev].write_bytes if int_dev else None
-    prev_int_read_bytes = _init_counters[int_dev].read_bytes if int_dev else None
     prev_ext_write_bytes = _init_counters[ext_dev].write_bytes if ext_dev else None
-    prev_ext_read_bytes = _init_counters[ext_dev].read_bytes if ext_dev else None
     swap = psutil.swap_memory()
     prev_swap_in_bytes = swap.sin
     prev_swap_out_bytes = swap.sout
@@ -126,7 +102,7 @@ def monitoring_thread() -> None:
         raw_recording_q_delta = raw_recording_q_len - prev_raw_recording_q_len
         prev_raw_recording_q_len = raw_recording_q_len
 
-        # disk write rate and free space
+        # disk write rate
         _counters = psutil.disk_io_counters(perdisk=True)
         if int_dev:
             int_write_mb_s = (
@@ -134,24 +110,14 @@ def monitoring_thread() -> None:
                 / (1024**2)
                 / elapsed
             )
-            int_read_mb_s = (
-                (_counters[int_dev].read_bytes - prev_int_read_bytes) / (1024**2)
-            ) / elapsed
             prev_int_write_bytes = _counters[int_dev].write_bytes
-            prev_int_read_bytes = _counters[int_dev].read_bytes
-            int_free_gb = psutil.disk_usage(_INT_MOUNT).free / (1024**3)
         if ext_dev:
             ext_write_mb_s = (
                 (_counters[ext_dev].write_bytes - prev_ext_write_bytes)
                 / (1024**2)
                 / elapsed
             )
-            ext_read_mb_s = (
-                (_counters[ext_dev].read_bytes - prev_ext_read_bytes) / (1024**2)
-            ) / elapsed
             prev_ext_write_bytes = _counters[ext_dev].write_bytes
-            prev_ext_read_bytes = _counters[ext_dev].read_bytes
-            ext_free_gb = psutil.disk_usage(_EXT_MOUNT).free / (1024**3)
 
         # swap usage and rates
         swap = psutil.swap_memory()
@@ -160,9 +126,6 @@ def monitoring_thread() -> None:
         swap_out_mb_s = ((swap.sout - prev_swap_out_bytes) / (1024**2)) / elapsed
         prev_swap_in_bytes = swap.sin
         prev_swap_out_bytes = swap.sout
-
-        # throttle state
-        throttle_flags = _get_throttle_flags() if SYSTEM == "Linux" else []
 
         # nominality
         non_nominal = (
@@ -175,9 +138,6 @@ def monitoring_thread() -> None:
             or raw_recording_q_len >= 5
             or (int_dev is not None and int_write_mb_s >= 0.75 * 30)
             or (ext_dev is not None and ext_write_mb_s >= 0.75 * 70)
-            or (int_dev is not None and int_free_gb < 1.0)
-            or (ext_dev is not None and ext_free_gb < 5.0)
-            or throttle_flags
         )
 
         # log all metrics in a single message to reduce logging overhead
@@ -194,18 +154,11 @@ def monitoring_thread() -> None:
         ]
         if int_dev:
             lines.append(f"int_write_mbps: {int_write_mb_s:.0f}")
-            lines.append(f"int_read_mbps: {int_read_mb_s:.0f}")
-            lines.append(f"int_free_gb: {int_free_gb:.1f}")
         if ext_dev:
             lines.append(f"ext_write_mbps: {ext_write_mb_s:.0f}")
-            lines.append(f"ext_read_mbps: {ext_read_mb_s:.0f}")
-            lines.append(f"ext_free_gb: {ext_free_gb:.1f}")
         if SYSTEM == "Linux":
             lines.append(f"cpu_freq_mhz: {freq_mhz:.0f} ({freq_delta:+.0f})")
             lines.append(f"cpu_temp_c: {temp_c:.0f} ({temp_delta:+.0f})")
-            lines.append(
-                f"throttle_state: {'|'.join(throttle_flags) if throttle_flags else 'ok'}"
-            )
         lines.append(f"monitoring_loop_ms: {(time.monotonic() - last_mono) * 1000:.0f}")
 
         log = logger.warning if non_nominal else logger.info
