@@ -57,7 +57,7 @@ User=rpdibble
 WorkingDirectory=/home/rpdibble/rpi_cat_behaviour_monitoring
 ExecStart=/home/rpdibble/rpi_cat_behaviour_monitoring.sh
 Environment=PYTHONUNBUFFERED=1
-Restart=always
+Restart=on-failure
 RestartSec=30
 KillSignal=SIGINT
 TimeoutStopSec=30
@@ -71,6 +71,49 @@ WantedBy=multi-user.target
 1. Check service status: `sudo systemctl status startup.service`
 1. View logs: `journalctl -u startup.service -b -o short-precise`
 1. Stop running service and disable startup execution: `sudo systemctl stop startup.service` and `sudo systemctl disable startup.service`
+
+### Scheduled start/stop
+Uses two timers to start and stop the service on a schedule.
+
+1. Create a timer to start the service: `/etc/systemd/system/startup.timer`
+1. Add content to file:
+```
+[Unit]
+Description=Start cat behaviour monitor on schedule
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+1. Create a oneshot service to stop the monitor: `/etc/systemd/system/startup-stop.service`
+1. Add content to file:
+```
+[Unit]
+Description=Stop cat behaviour monitor
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop startup.service
+```
+1. Create a timer to stop the service: `/etc/systemd/system/startup-stop.timer`
+1. Add content to file:
+```
+[Unit]
+Description=Stop cat behaviour monitor on schedule
+
+[Timer]
+OnCalendar=*-*-* 23:59:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+1. Reload manager, enable timers, disable direct boot start: `sudo systemctl daemon-reload` and `sudo systemctl enable --now startup.timer startup-stop.timer` and `sudo systemctl disable startup.service`
+1. Verify: `systemctl list-timers startup.timer startup-stop.timer`
+1. To manually start outside the window: `sudo systemctl start startup.service`
 
 ## Cloud sync script
 1. [Install rclone](https://rclone.org/install/#script-installation)
