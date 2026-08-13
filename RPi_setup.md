@@ -146,3 +146,34 @@ WantedBy=multi-user.target
 1. Start it immediately: `sudo systemctl start mnt-hdd.automount`
 1. Verify it mounts on access: `ls /mnt/hdd`
 1. Check status: `sudo systemctl status mnt-hdd.mount`
+
+### Memory swap on HDD
+Current state is zram-only (`/dev/zram0`). Keep zram enabled and add HDD swap as a secondary tier to improve behavior when memory pressure spikes.
+
+1. Create a swap file on the HDD: `sudo dd if=/dev/zero of=/mnt/hdd/swapfile bs=1M count=2048 status=progress`
+1. Set correct permissions: `sudo chmod 600 /mnt/hdd/swapfile`
+1. Set root ownership: `sudo chown root:root /mnt/hdd/swapfile`
+1. Format as swap: `sudo mkswap /mnt/hdd/swapfile`
+1. Test activation once: `sudo swapon -p 50 /mnt/hdd/swapfile`
+1. If the test worked, disable it again before wiring it into systemd: `sudo swapoff /mnt/hdd/swapfile`
+1. Create a systemd service file to activate swap after the HDD mounts: `/etc/systemd/system/hdd-swap.service`
+1. Add content to file:
+```
+[Unit]
+Description=Enable swap on HDD
+After=mnt-hdd.mount
+Requires=mnt-hdd.mount
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/swapon -p 50 /mnt/hdd/swapfile
+ExecStop=/sbin/swapoff /mnt/hdd/swapfile
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+```
+1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable hdd-swap.service`
+1. Start immediately: `sudo systemctl start hdd-swap.service`
+1. Verify both tiers are active and priority is correct: `swapon --show`
+1. Optional runtime check: `free -h`
