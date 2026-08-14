@@ -386,6 +386,7 @@ class TrackManager:
 
     def __init__(self) -> None:
         self.tracks: list[Track] = []
+        self._next_track_id = 1
 
     def __len__(self) -> int:
         lengths = {len(track) for track in self.tracks}
@@ -405,23 +406,27 @@ class TrackManager:
             track for track in self.tracks if track.summary.state < TrackState.EXPIRED
         ]
 
-    def get_track(self, track_id: int) -> Track:
+    def get_track(self, track_id: int) -> Optional[Track]:
         matches = [track for track in self.tracks if track.track_id == track_id]
-        if len(matches) != 1:
+        if len(matches) == 0:
+            return None
+        elif len(matches) == 1:
+            return matches[0]
+        else:
             raise ValueError(
-                f"Expected exactly one track with id {track_id}, found {len(matches)}"
+                f"Expected one track with id {track_id}, found {len(matches)}"
             )
-        return matches[0]
 
     def _new_track(
         self, track_frame: TrackFrame, frame_index: int, frame_hash: str
     ) -> Track:
         track = Track(
-            track_id=len(self.tracks) + 1,
+            track_id=self._next_track_id,
             frame_index=frame_index,
             frame=track_frame,
             frame_hash=frame_hash,
         )
+        self._next_track_id += 1
         return track
 
     def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
@@ -471,6 +476,13 @@ class TrackManager:
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
                 self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
+
+        # prune expired tracks
+        n_tracks = len(self.tracks)
+        self.tracks = [t for t in self.tracks if t.summary.state < TrackState.EXPIRED]
+        n_pruned = n_tracks - len(self.tracks)
+        if n_pruned:
+            logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)

@@ -379,7 +379,7 @@ class Frame:
                 [
                     s
                     for s in self.processing_track_summaries
-                    if r_summaries_map[s.track_id]
+                    if r_summaries_map.get(s.track_id, TrackState.EXPIRED)
                     in [TrackState.ACTIVE, TrackState.STALE]
                 ],
                 key=lambda s: (s.state, s.track_id),
@@ -573,6 +573,7 @@ def processing_thread():
             frame_recording.recording_track_summaries = [
                 track_manager.get_track(t.track_id).summary
                 for t in frame_recording.processing_track_summaries
+                if track_manager.get_track(t.track_id)
             ]
             assert all(
                 [
