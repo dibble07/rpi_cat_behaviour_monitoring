@@ -72,7 +72,7 @@ def monitoring_thread() -> None:
         prev_rss = rss
 
         # cpu utilization
-        cpu = process.cpu_percent(interval=None)
+        cpu = process.cpu_percent(interval=None) / psutil.cpu_count()
         cpu_delta = cpu - prev_cpu if prev_cpu else 0.0
         prev_cpu = cpu
         iowait_pct = float(
@@ -130,7 +130,7 @@ def monitoring_thread() -> None:
         # nominality
         non_nominal = (
             rss >= 0.75 * 2 * 1024
-            or cpu >= 0.75 * 4 * 100
+            or cpu >= 0.75 * 100
             or iowait_pct >= 10
             or (SYSTEM == "Linux" and temp_c >= 70)
             or frame_q_len >= 5
