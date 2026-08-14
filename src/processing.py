@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ctypes
+import gc
 import hashlib
 import logging
 import os
@@ -16,7 +18,7 @@ import numpy as np
 from ultralytics import YOLO
 
 import utils
-from config import settings
+from config import SYSTEM, settings
 from shared import frame_queue, set_recording_queue_size, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
 
@@ -484,6 +486,12 @@ def _release_writers(
         wtr_r.release()
         path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
         logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
+
+    # free swap memory
+    gc.collect()
+    if SYSTEM == "Linux":
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+
     return None, None
 
 
@@ -596,6 +604,9 @@ def processing_thread():
                     logger.info(
                         f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
+                    gc.collect()
+                    if SYSTEM == "Linux":
+                        ctypes.CDLL("libc.so.6").malloc_trim(0)
 
                 else:
 
