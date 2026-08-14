@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
-import torch
 
 
 def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
@@ -129,8 +128,10 @@ class Bbox:
         return int(round((x1 + x2) / 2)), int(round((y1 + y2) / 2)), x2 - x1, y2 - y1
 
 
-def get_best_device() -> torch.device:
+def get_best_device():
     """Identify the best available PyTorch device"""
+    import torch  # notebooks only — save memory in prod
+
     # Check for CUDA (NVIDIA GPUs)
     if torch.cuda.is_available():
         out = torch.device("cuda")
