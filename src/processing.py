@@ -21,6 +21,7 @@ import utils
 from config import SYSTEM, settings
 from shared import frame_queue, set_recording_queue_size, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
+from yolo_ncnn import YOLO_NCNN
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,18 @@ _ = MODEL(
     iou=settings.NMS_IOU_THRESHOLD,
     verbose=False,
     max_det=settings.MAX_DETS,
+)
+
+# load NCNN model for benchmarking
+MODEL_NCNN = YOLO_NCNN(
+    Path("models") / settings.MODEL_DETECTION_PATH,
+    conf=settings.CONF,
+    iou=settings.NMS_IOU_THRESHOLD,
+    max_det=settings.MAX_DETS,
+)
+MODEL_NCNN(
+    np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
+    imgsz=tuple(settings.DETECTION_IMGSZ),
 )
 
 # define background subtractor
@@ -309,6 +322,17 @@ class Frame:
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
+
+            # NCNN benchmarking (separate from main detection timing)
+            start = datetime.now()
+            MODEL_NCNN(
+                image,
+                imgsz=tuple(settings.DETECTION_IMGSZ),
+                conf=settings.CONF,
+                iou=settings.NMS_IOU_THRESHOLD,
+                max_det=settings.MAX_DETS,
+            )
+            utils.log_timing(logger, "NCNN model inference", start, self.hash)
 
             # log detections
             if track_frames:
