@@ -156,7 +156,6 @@ Recorded clips are annotated include the following overlays:
 | File/Directory | Purpose |
 |---|---|
 | [pyproject.toml](pyproject.toml) | Python project dependencies and metadata |
-| [settings.toml](settings.toml) | Application configuration |
 | [RPi_setup.md](RPi_setup.md) | Raspberry Pi hardware setup and initialisation guide |
 | [src/](src/) | Core application source code |
 | [datasets/](datasets/) | Model training and app development datasets |
@@ -174,10 +173,13 @@ Recorded clips are annotated include the following overlays:
 | [src/processing.py](src/processing.py) | Core processing pipeline: object detection, tracking, recording |
 | [src/monitoring.py](src/monitoring.py) | Resource monitoring: logs system metrics periodically |
 | [src/camera.py](src/camera.py) | Camera abstraction layer: handles different camera backends |
+| [src/settings.toml](src/settings.toml) | Application configuration |
 | [src/config.py](src/config.py) | Configuration loader: reads settings from `settings.toml` |
 | [src/classification.py](src/classification.py) | Cat identity classification: predicts cat labels from embedding features |
 | [src/tracking.py](src/tracking.py) | Tracking system: Hungarian algorithm, Kalman filtering, state machine |
-| [src/utils.py](src/utils.py) | Utility functions: bounding box operations, logging helpers |
+| [src/ffmpegwriter.py](src/ffmpegwriter.py) | Video writer wrapper for encoded clip output |
+| [src/yolo_ncnn.py](src/yolo_ncnn.py) | YOLO inference via NCNN directly instead of PyTorch |
+| [src/utils.py](src/utils.py) | Utility functions |
 
 ### Datasets
 
