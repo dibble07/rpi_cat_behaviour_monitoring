@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import ctypes
+import gc
 import hashlib
 import logging
 import os
 import queue
-import subprocess
-import threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -13,12 +13,13 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 import utils
-from config import settings
-from shared import cam, frame_queue, shutdown_event
+from config import SYSTEM, settings
+from ffmpegwriter import FFmpegWriter
+from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
+from yolo_ncnn import YOLO_NCNN
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +27,12 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-MODEL = YOLO(Path("models") / settings.MODEL_DETECTION_PATH, task="detect")
+MODEL = YOLO_NCNN(Path("models") / settings.MODEL_DETECTION_PATH)
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
-    imgsz=settings.DETECTION_IMGSZ,
+    imgsz=tuple(settings.DETECTION_IMGSZ),
     conf=settings.CONF,
     iou=settings.NMS_IOU_THRESHOLD,
-    verbose=False,
     max_det=settings.MAX_DETS,
 )
 
@@ -44,56 +44,6 @@ BACK_SUB = cv2.createBackgroundSubtractorMOG2(
 # low-resolution dimensions used for motion detection
 _GREY_W = 640
 _GREY_H = 480
-
-
-class FFmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg for quality-controlled MJPEG."""
-
-    def __init__(
-        self,
-        path: str,
-        fps: float,
-        width: int,
-        height: int,
-        qv: int,
-    ):
-        self.output_path = path
-        cmd = [
-            "ffmpeg",
-            "-n",
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "bgr24",
-            "-s",
-            f"{width}x{height}",
-            "-r",
-            str(fps),
-            "-i",
-            "pipe:0",
-            "-c:v",
-            "mjpeg",
-            "-q:v",
-            str(qv),
-            "-pix_fmt",
-            "yuvj420p",
-            path,
-        ]
-        self._proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-        if self._proc.poll() is not None:
-            raise RuntimeError(f"ffmpeg failed to start for {path}")
-
-    def write(self, frame: np.ndarray) -> None:
-        self._proc.stdin.write(frame.tobytes())
-
-    def release(self) -> None:
-        self._proc.stdin.close()
-        self._proc.wait()
 
 
 class Frame:
@@ -248,10 +198,9 @@ class Frame:
             # run model inference
             results = MODEL(
                 image,
-                imgsz=settings.DETECTION_IMGSZ,
+                imgsz=tuple(settings.DETECTION_IMGSZ),
                 conf=settings.CONF,
                 iou=settings.NMS_IOU_THRESHOLD,
-                verbose=False,
                 max_det=settings.MAX_DETS,
             )[0]
 
@@ -342,7 +291,7 @@ class Frame:
                 [
                     s
                     for s in self.processing_track_summaries
-                    if r_summaries_map[s.track_id]
+                    if r_summaries_map.get(s.track_id, TrackState.EXPIRED)
                     in [TrackState.ACTIVE, TrackState.STALE]
                 ],
                 key=lambda s: (s.state, s.track_id),
@@ -389,16 +338,19 @@ class Frame:
 
                     # extract object/cat label, confidence, and text size
                     label = f"{summary.track_id} {summary.cat_name or track_frame.object_name}"
-                    (w, h), _ = cv2.getTextSize(label, FONT, 1, 1)
+                    (w, h), baseline = cv2.getTextSize(label, FONT, 1, 1)
 
                     # draw background rectangle for text
-                    txt_box_coords = (int(x1 + 1.1 * w), int(y1 + 1.2 * h))
                     cv2.rectangle(
-                        self._image_annotated, (x1, y1), txt_box_coords, ann_colour, -1
+                        self._image_annotated,
+                        (x1, y1 - (h + baseline)),
+                        (x1 + w, y1),
+                        ann_colour,
+                        -1,
                     )
 
                     # add text
-                    txt_coords = (int(x1 + w * 0.05), int(y1 + h * 1.1))
+                    txt_coords = (x1, y1 - baseline)
                     cv2.putText(
                         self._image_annotated,
                         label,
@@ -412,6 +364,21 @@ class Frame:
             utils.log_timing(logger, "Image annotation", start, self.hash)
 
         return self._image_annotated
+
+
+_HDD_MOUNT = "/mnt/hdd"
+
+
+def _get_output_dir() -> str:
+    if os.path.ismount(_HDD_MOUNT):
+        dir = os.path.join(_HDD_MOUNT, settings.OUTPUT_DIR)
+    else:
+        dir = settings.OUTPUT_DIR
+        logger.warning(
+            f"HDD not mounted at {_HDD_MOUNT}, falling back to SD card output dir"
+        )
+    os.makedirs(dir, exist_ok=True)
+    return dir
 
 
 def _release_writers(
@@ -431,6 +398,12 @@ def _release_writers(
         wtr_r.release()
         path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
         logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
+
+    # free swap memory
+    gc.collect()
+    if SYSTEM == "Linux":
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+
     return None, None
 
 
@@ -459,7 +432,7 @@ def processing_thread():
         try:
             if replay_buffer:
                 timestamp, image = replay_buffer.popleft()
-                logger.debug("Processing replay frame")
+                logger.info("Processing replay frame")
             else:
                 timestamp, image = frame_queue.get(timeout=0.1)
             start_capture = datetime.now()
@@ -498,7 +471,7 @@ def processing_thread():
 
         # log processing rate
         elapsed_capture = utils.log_timing(
-            logger, "Processing", start_capture, frame_captured.hash
+            logger, "Processing", start_capture, frame_captured.hash, logging.INFO
         )
 
         # process frames in the buffer if enough frames have been captured
@@ -512,6 +485,7 @@ def processing_thread():
             frame_recording.recording_track_summaries = [
                 track_manager.get_track(t.track_id).summary
                 for t in frame_recording.processing_track_summaries
+                if track_manager.get_track(t.track_id)
             ]
             assert all(
                 [
@@ -543,6 +517,9 @@ def processing_thread():
                     logger.info(
                         f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
+                    gc.collect()
+                    if SYSTEM == "Linux":
+                        ctypes.CDLL("libc.so.6").malloc_trim(0)
 
                 else:
 
@@ -552,8 +529,8 @@ def processing_thread():
                         # init recordings
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             out_path = os.path.join(
-                                settings.OUTPUT_DIR,
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.avi",
+                                _get_output_dir(),
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
                             )
                             writer = FFmpegWriter(
                                 out_path,
@@ -561,14 +538,15 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
+                                raw=False,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting recording: {out_path}"
                             )
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
-                                settings.OUTPUT_DIR,
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.avi",
+                                _get_output_dir(),
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.mp4",
                             )
                             writer_raw = FFmpegWriter(
                                 out_raw_path,
@@ -576,6 +554,7 @@ def processing_thread():
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
                                 settings.MJPEG_QV,
+                                raw=True,
                             )
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
@@ -583,25 +562,14 @@ def processing_thread():
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
-                        for bf in pre_buffer:
-                            _ = bf.image_annotated
-                        start_buf = datetime.now()
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            logger.debug(
-                                "(%s) Pre-buffer write marker: remaining_pre=%s",
-                                frame_recording.hash,
-                                len(pre_buffer),
-                            )
                             if writer is not None:
-                                writer.write(bf.image_annotated)
+                                writer.write(bf.image_annotated, bf.hash)
                             if writer_raw is not None:
-                                writer_raw.write(bf.image)
+                                writer_raw.write(bf.image, bf.hash)
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
-                        )
-                        utils.log_timing(
-                            logger, "Buffer writing", start_buf, frame_recording.hash
                         )
 
                         recording = True
@@ -611,17 +579,12 @@ def processing_thread():
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
                     _ = frame_recording.image_annotated
-                    start_write = datetime.now()
                     if writer is not None:
-                        writer.write(frame_recording.image_annotated)
+                        writer.write(
+                            frame_recording.image_annotated, frame_recording.hash
+                        )
                     if writer_raw is not None:
-                        writer_raw.write(frame_recording.image)
-                    utils.log_timing(
-                        logger,
-                        "Current frame writing",
-                        start_write,
-                        frame_recording.hash,
-                    )
+                        writer_raw.write(frame_recording.image, frame_recording.hash)
 
                 # stop recording close video file
                 if not track_manager.non_expired_tracks or has_excluded_object:
@@ -639,7 +602,7 @@ def processing_thread():
                             while processing_buffer:
                                 frame_replay = processing_buffer.popleft()
                                 replay_buffer.append(
-                                    (frame_replay.timestamp, frame_replay.image.copy())
+                                    (frame_replay.timestamp, frame_replay.image)
                                 )
                             logger.info(
                                 f"({frame_recording.hash}) Queued {replayed} delayed frame(s) for replay"
@@ -661,7 +624,7 @@ def processing_thread():
 
         # log recording rate
         elapsed_recording = utils.log_timing(
-            logger, "Recording", start_recording, frame_captured.hash
+            logger, "Recording", start_recording, frame_captured.hash, logging.INFO
         )
 
         # log overall FPS

@@ -1,11 +1,11 @@
 import logging
 import random
-from pathlib import Path
 from typing import Optional, Union
 
 import cv2
 import numpy as np
 
+import utils
 from config import SYSTEM, settings
 
 logger = logging.getLogger(__name__)
@@ -14,11 +14,7 @@ logger = logging.getLogger(__name__)
 class Cv2_camera:
     def __init__(self):
         # initialise camera object
-        avi_files = [str(path) for path in Path("datasets/mock_inputs").glob("*.avi")]
-        if not avi_files:
-            raise FileNotFoundError(f"No .avi files found in mock_inputs directory")
-
-        video_path = random.choice(avi_files)
+        video_path = random.choice(utils.get_video_paths(raw_video=False))
         logger.info(f"Using Cv2_camera with mock video: {video_path}")
         self.cam = cv2.VideoCapture(video_path)
 

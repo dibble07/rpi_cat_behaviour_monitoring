@@ -55,6 +55,12 @@ finally:
 # close down application
 logger.info("Waiting for threads to finish...")
 capture_t.join(timeout=5)
+if capture_t.is_alive():
+    logger.warning("Capture thread did not exit cleanly within timeout")
 processing_t.join(timeout=5)
+if processing_t.is_alive():
+    logger.warning("Processing thread did not exit cleanly within timeout")
 monitoring_t.join(timeout=5)
+if monitoring_t.is_alive():
+    logger.warning("Monitoring thread did not exit cleanly within timeout")
 logger.info("Application shutdown complete")
