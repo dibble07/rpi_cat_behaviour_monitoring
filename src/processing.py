@@ -564,11 +564,6 @@ def processing_thread():
                         pre_buffer_len = len(pre_buffer)
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            logger.debug(
-                                "(%s) Pre-buffer write marker: remaining_pre=%s",
-                                frame_recording.hash,
-                                len(pre_buffer),
-                            )
                             if writer is not None:
                                 writer.write(bf.image_annotated, bf.hash)
                             if writer_raw is not None:
