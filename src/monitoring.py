@@ -164,6 +164,6 @@ def monitoring_thread() -> None:
         log = logger.warning if non_nominal else logger.info
         log(" | ".join(lines))
 
-        time.sleep(0.5 if non_nominal else settings.MONITORING_PERIOD)
+        time.sleep(0.5 if non_nominal else 4)
 
     logger.info("Monitoring thread stopped")
