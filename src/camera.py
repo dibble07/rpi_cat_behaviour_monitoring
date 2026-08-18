@@ -28,7 +28,9 @@ class Cv2_camera:
             )
 
         # buffer variables for final frame when video ends
-        self._buffer_frames = int(settings.BUFFER_DUR * settings.FPS)
+        self._buffer_frames = int(
+            max(settings.BUFFER_DUR, settings.TRACK_STALE_DUR) * settings.FPS
+        )
         self._last_frame = None
         self._buffer_count = 0
 
