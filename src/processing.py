@@ -291,7 +291,7 @@ class Frame:
                 [
                     s
                     for s in self.processing_track_summaries
-                    if r_summaries_map.get(s.track_id, TrackState.EXPIRED)
+                    if r_summaries_map[s.track_id]
                     in [TrackState.ACTIVE, TrackState.STALE]
                 ],
                 key=lambda s: (s.state, s.track_id),
@@ -477,7 +477,7 @@ def processing_thread():
         # process frames in the buffer if enough frames have been captured
         start_recording = datetime.now()
         while len(processing_buffer) > int(
-            np.ceil(settings.FPS) * settings.TRACK_NEW_DUR
+            np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
         ):
 
             # extract frame and check for excluded objects
@@ -485,7 +485,6 @@ def processing_thread():
             frame_recording.recording_track_summaries = [
                 track_manager.get_track(t.track_id).summary
                 for t in frame_recording.processing_track_summaries
-                if track_manager.get_track(t.track_id)
             ]
             assert all(
                 [

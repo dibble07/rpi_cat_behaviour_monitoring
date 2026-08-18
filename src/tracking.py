@@ -159,6 +159,7 @@ class Track:
         self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
         self._frame_hash = frame_hash
+        self._expired_at_frame_count: Optional[int] = None
         self.append(frame)
 
     def __len__(self) -> int:
@@ -296,7 +297,7 @@ class Track:
             case None:
                 state = TrackState.NEW
             case TrackState.NEW:
-                new_frame_count = int(np.ceil(settings.FPS) * settings.TRACK_NEW_DUR)
+                new_frame_count = int(np.ceil(settings.FPS * settings.TRACK_NEW_DUR))
                 frames_init = self._frames[
                     self._first_detection_index : self._first_detection_index
                     + new_frame_count
@@ -351,6 +352,9 @@ class Track:
         else:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
+
+        if state == TrackState.EXPIRED and prev_summary.state != TrackState.EXPIRED:
+            self._expired_at_frame_count = frame_count
 
         frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
@@ -413,16 +417,13 @@ class TrackManager:
             track for track in self.tracks if track.summary.state < TrackState.EXPIRED
         ]
 
-    def get_track(self, track_id: int) -> Optional[Track]:
+    def get_track(self, track_id: int) -> Track:
         matches = [track for track in self.tracks if track.track_id == track_id]
-        if len(matches) == 0:
-            return None
-        elif len(matches) == 1:
-            return matches[0]
-        else:
+        if len(matches) != 1:
             raise ValueError(
-                f"Expected one track with id {track_id}, found {len(matches)}"
+                f"Expected exactly one track with id {track_id}, found {len(matches)}"
             )
+        return matches[0]
 
     def _new_track(
         self, track_frame: TrackFrame, frame_index: int, frame_hash: str
@@ -484,9 +485,15 @@ class TrackManager:
             if candidate_index not in matched_candidates:
                 self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
 
-        # prune expired tracks
+        # prune expired tracks that have been processed by the recording buffer
         n_tracks = len(self.tracks)
-        self.tracks = [t for t in self.tracks if t.summary.state < TrackState.EXPIRED]
+        self.tracks = [
+            t
+            for t in self.tracks
+            if t.summary.state < TrackState.EXPIRED
+            or t.summary.frame_count - t._expired_at_frame_count
+            <= np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
+        ]
         n_pruned = n_tracks - len(self.tracks)
         if n_pruned:
             logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
