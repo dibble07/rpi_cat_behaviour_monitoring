@@ -74,24 +74,27 @@ class TrackFrame:
     """Detection snapshot used by the tracker."""
 
     frame_hash: str
-    image: np.ndarray
+    image: Optional[np.ndarray]
     bbox: utils.Bbox
     object_name: str
     confidence: float
-    roi: np.ndarray = field(init=False, repr=False)
+    frame_wh: tuple[int, int] = field(init=False)
+    roi: Optional[np.ndarray] = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
     _cat_name_proba: Optional[np.ndarray] = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        h, w = self.image.shape[:2]
+        if self.image is None:
+            raise ValueError("TrackFrame.image is required at initialization")
+        self.frame_wh = tuple(reversed(self.image.shape[:2]))
         x1, y1, x2, y2 = self.bbox.xyxy
         x1, y1, x2, y2 = utils.expand_bbox_from_bounds(
             x_min=x1,
             x_max=x2,
             y_min=y1,
             y_max=y2,
-            image_width=w,
-            image_height=h,
+            image_width=self.frame_wh[0],
+            image_height=self.frame_wh[1],
             pad=0,
             target_aspect_ratio=1.0,
         )
@@ -100,9 +103,13 @@ class TrackFrame:
     @property
     def roi_embedding(self) -> np.ndarray:
         if self._roi_embedding is None:
+            if self.roi is None:
+                raise RuntimeError("TrackFrame ROI is not available for embedding")
             start = datetime.now()
             self._roi_embedding = embed_image(self.roi)
             utils.log_timing(logger, "Embedding", start, self.frame_hash)
+            self.roi = None
+            self.image = None
         return self._roi_embedding
 
     @property
@@ -345,7 +352,7 @@ class Track:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
 
-        frame_wh = tuple(reversed(last_valid_frame.image.shape[:2]))
+        frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
