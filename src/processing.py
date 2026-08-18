@@ -586,10 +586,14 @@ def processing_thread():
                         writer_raw.write(frame_recording.image, frame_recording.hash)
 
                 # stop recording close video file
-                if not track_manager.non_expired_tracks or has_excluded_object:
+                recording_tracks_valid = any(
+                    s.state < TrackState.EXPIRED
+                    for s in frame_recording.processing_track_summaries
+                )
+                if not recording_tracks_valid or has_excluded_object:
                     if has_excluded_object:
                         log_msg = "excluded object detected"
-                    elif not track_manager.non_expired_tracks:
+                    elif not recording_tracks_valid:
                         log_msg = "all tracks expired"
                     writer, writer_raw = _release_writers(
                         writer, writer_raw, frame_recording.hash, log_msg
