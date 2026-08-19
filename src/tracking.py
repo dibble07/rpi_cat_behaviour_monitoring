@@ -7,12 +7,11 @@ from enum import IntEnum, auto
 from pathlib import Path
 from typing import List, Optional
 
+import cv2
 import numpy as np
 import onnxruntime as ort
 from filterpy.kalman import KalmanFilter
-from PIL import Image
 from scipy.optimize import linear_sum_assignment
-from torchvision import models
 
 import classification
 import utils
@@ -21,10 +20,6 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-_EMBEDDING_PREPROCESS = models.ShuffleNet_V2_X0_5_Weights.DEFAULT.transforms(
-    crop_size=settings.EMBEDDING_IMGSZ,
-    resize_size=settings.EMBEDDING_IMGSZ,
-)
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
     Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
     providers=["CPUExecutionProvider"],
@@ -32,16 +27,32 @@ _embedding_session: ort.InferenceSession = ort.InferenceSession(
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
 
-def embed_image(image_np: np.ndarray) -> np.ndarray:
+def embed_image(image: np.ndarray) -> np.ndarray:
     """Generate an L2-normalized embedding for an RGB image array using cached ONNX session."""
 
-    image_np = np.asarray(image_np, dtype=np.uint8)
+    # pad to square with grey filler
+    h, w = image.shape[:2]
+    if h != w:
+        side = max(h, w)
+        padded = np.full((side, side, image.shape[2]), 128, dtype=image.dtype)
+        y_off = (side - h) // 2
+        x_off = (side - w) // 2
+        padded[y_off : y_off + h, x_off : x_off + w] = image
+        image = padded
 
-    tensor = (
-        _EMBEDDING_PREPROCESS(Image.fromarray(image_np)).unsqueeze(0).to("cpu").half()
+    # resize image
+    imgsz = settings.EMBEDDING_IMGSZ
+    cropped = cv2.resize(image, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
+
+    # imagenet normalisation
+    mean, std = np.array([0.485, 0.456, 0.406]), np.array([0.229, 0.224, 0.225])
+    img = (cropped / 255.0 - mean) / std
+    tensor = img.transpose(2, 0, 1)[np.newaxis].astype(np.float16)
+
+    # create and normalise embedding
+    embedding = _embedding_session.run(None, {_embedding_input_name: tensor})[0].astype(
+        np.float32
     )
-    embedding = _embedding_session.run(None, {_embedding_input_name: tensor.numpy()})[0]
-    embedding = embedding.astype(np.float32)
     denom = np.linalg.norm(embedding, ord=2, axis=1, keepdims=True)
     embedding = embedding / np.clip(denom, 1e-12, None)
     return embedding[0]
