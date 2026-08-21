@@ -153,7 +153,32 @@ WantedBy=timers.target
 1. View logs: `journalctl -u rclone-sync.service -f`
 
 ## External HDD mount
-1. Find the drive's UUID: `sudo blkid /dev/sda1`
+1. Back up the external drive.
+1. Check the drive name: `lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT /dev/sda`
+1. Repartition the drive with one data partition and four 256 MiB swap partitions using explicit positive MiB boundaries:
+```
+DISK_MIB=$(sudo blockdev --getsize64 /dev/sda | awk '{print int($1/1024/1024)}')
+P2_START=$((DISK_MIB-1024))
+P3_START=$((DISK_MIB-768))
+P4_START=$((DISK_MIB-512))
+P5_START=$((DISK_MIB-256))
+
+sudo parted -s /dev/sda unit MiB \
+	mklabel gpt \
+	mkpart primary ntfs 1 "$P2_START" \
+	mkpart primary linux-swap "$P2_START" "$P3_START" \
+	mkpart primary linux-swap "$P3_START" "$P4_START" \
+	mkpart primary linux-swap "$P4_START" "$P5_START" \
+	mkpart primary linux-swap "$P5_START" 100% \
+	set 2 swap on \
+	set 3 swap on \
+	set 4 swap on \
+	set 5 swap on
+```
+1. Re-read the partition table: `sudo partprobe /dev/sda`
+1. Confirm the partition nodes exist: `sudo udevadm settle` then `lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT /dev/sda` and `sudo parted -s /dev/sda unit MiB print`
+1. Create the data filesystem on `/dev/sda1` if needed. Example for NTFS: `sudo mkfs.ntfs -f /dev/sda1`
+1. Find the data partition UUID: `sudo blkid /dev/sda1`
 1. Create the mount point directory: `sudo mkdir -p /mnt/hdd`
 1. Create a systemd mount unit file: `/etc/systemd/system/mnt-hdd.mount`
 1. Add content to file (replace `<UUID>` with the value from `blkid`, and set `Type` to match your filesystem):
@@ -193,32 +218,34 @@ WantedBy=multi-user.target
 1. Check status: `sudo systemctl status mnt-hdd.mount`
 
 ### Memory swap on HDD
-Current state is zram-only (`/dev/zram0`). Keep zram enabled and add HDD swap as a secondary tier to improve behavior when memory pressure spikes.
-
-1. Create a swap file on the HDD: `sudo dd if=/dev/zero of=/mnt/hdd/swapfile bs=1M count=2048 status=progress`
-1. Set correct permissions: `sudo chmod 600 /mnt/hdd/swapfile`
-1. Set root ownership: `sudo chown root:root /mnt/hdd/swapfile`
-1. Format as swap: `sudo mkswap /mnt/hdd/swapfile`
-1. Test activation once: `sudo swapon -p 50 /mnt/hdd/swapfile`
-1. If the test worked, disable it again before wiring it into systemd: `sudo swapoff /mnt/hdd/swapfile`
-1. Create a systemd service file to activate swap after the HDD mounts: `/etc/systemd/system/hdd-swap.service`
-1. Add content to file:
+1. Find the swap partition UUIDs: `sudo blkid /dev/sda2 /dev/sda3 /dev/sda4 /dev/sda5`
+1. Format each chunk as swap (`mkswap` supports one device per command):
 ```
-[Unit]
-Description=Enable swap on HDD
-After=mnt-hdd.mount
-Requires=mnt-hdd.mount
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/swapon -p 50 /mnt/hdd/swapfile
-ExecStop=/sbin/swapoff /mnt/hdd/swapfile
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
+sudo mkswap /dev/sda2
+sudo mkswap /dev/sda3
+sudo mkswap /dev/sda4
+sudo mkswap /dev/sda5
 ```
-1. Reload manager and enable service: `sudo systemctl daemon-reload` and `sudo systemctl enable hdd-swap.service`
-1. Start immediately: `sudo systemctl start hdd-swap.service`
-1. Verify both tiers are active and priority is correct: `swapon --show`
-1. Optional runtime check: `free -h`
+1. Test activation once with descending priorities so later chunks are easiest to retire:
+```
+sudo swapon -p 40 /dev/sda2
+sudo swapon -p 30 /dev/sda3
+sudo swapon -p 20 /dev/sda4
+sudo swapon -p 10 /dev/sda5
+```
+1. If the test worked, disable the chunks again before persisting them:
+```
+sudo swapoff /dev/sda5
+sudo swapoff /dev/sda4
+sudo swapoff /dev/sda3
+sudo swapoff /dev/sda2
+```
+1. Add the swap partitions to `/etc/fstab` so systemd activates them automatically at boot:
+```
+UUID=<SWAP_UUID_2> none swap defaults,pri=40,nofail 0 0
+UUID=<SWAP_UUID_3> none swap defaults,pri=30,nofail 0 0
+UUID=<SWAP_UUID_4> none swap defaults,pri=20,nofail 0 0
+UUID=<SWAP_UUID_5> none swap defaults,pri=10,nofail 0 0
+```
+1. Reload systemd and enable all swap entries immediately: `sudo systemctl daemon-reload` and `sudo swapon -a`
+1. Verify zram stays above the HDD tier and the HDD chunks are visible individually: `swapon --show`
