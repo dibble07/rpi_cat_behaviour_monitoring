@@ -6,6 +6,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 
 def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
     """Return video paths from selected dataset sources"""
@@ -203,12 +205,20 @@ def expand_bbox_from_bounds(
             y1 -= grow_bef
             y2 += grow_aft
 
+    # clip outputs to image bounds
+    x1, x2 = int(max(0, x1)), int(min(image_width - 1, x2))
+    y1, y2 = int(max(0, y1)), int(min(image_height - 1, y2))
+
     # check aspect ratio is within rounding range
+    exact_ar = (x2 - x1) / (y2 - y1)
     low_ar = (x2 - x1 + 0.5) / (y2 - y1 + 1.5)
     high_ar = (x2 - x1 + 1.5) / (y2 - y1 + 0.5)
-    assert low_ar <= target_ar <= high_ar
+    if not (low_ar <= target_ar <= high_ar):
+        logger.warning(
+            f"Expanded bbox aspect ratio {exact_ar:.3f} is not close to target target {target_ar:.3f}"
+        )
 
-    return [int(x1), int(y1), int(x2), int(y2)]
+    return [x1, y1, x2, y2]
 
 
 def entropy_weights(probs: np.ndarray) -> np.ndarray:
