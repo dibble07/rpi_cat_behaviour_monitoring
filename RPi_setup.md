@@ -62,8 +62,6 @@ RestartSec=30
 KillSignal=SIGINT
 TimeoutStopSec=30
 StartLimitAction=none
-ExecStartPre=/bin/bash -c 'echo "$$(date --iso-8601=seconds) startup prev_result=$$(systemctl show startup.service -p Result --value) prev_exit_code=$$(systemctl show startup.service -p ExecMainCode --value) prev_exit_status=$$(systemctl show startup.service -p ExecMainStatus --value)" >> /home/rpdibble/rpi_cat_behaviour_monitoring/object_clips/service_stops.txt'
-ExecStopPost=/bin/bash -c 'echo "$$(date --iso-8601=seconds) stop result=$$SERVICE_RESULT exit_code=$$EXIT_CODE exit_status=$$EXIT_STATUS" >> /home/rpdibble/rpi_cat_behaviour_monitoring/object_clips/service_stops.txt'
 
 [Install]
 WantedBy=multi-user.target
