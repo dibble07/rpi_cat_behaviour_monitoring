@@ -249,3 +249,71 @@ UUID=<SWAP_UUID_5> none swap defaults,pri=10,nofail 0 0
 ```
 1. Reload systemd and enable all swap entries immediately: `sudo systemctl daemon-reload` and `sudo swapon -a`
 1. Verify zram stays above the HDD tier and the HDD chunks are visible individually: `swapon --show`
+
+### Periodic chunk-wise reclaim
+1. Create a reclaim script: `/usr/local/bin/reclaim-hdd-swap.sh`
+1. Add content to file:
+```
+#!/bin/bash
+set -euo pipefail
+
+MIN_AVAILABLE_KB=$((700 * 1024))
+SWAP_TARGETS=(
+	"/dev/sda5:10"
+	"/dev/sda4:20"
+	"/dev/sda3:30"
+	"/dev/sda2:40"
+)
+
+available_kb="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)"
+if (( available_kb < MIN_AVAILABLE_KB )); then
+	logger -t hdd-swap-reclaim "skip: MemAvailable=${available_kb}kB"
+	exit 0
+fi
+
+for entry in "${SWAP_TARGETS[@]}"; do
+	dev="${entry%%:*}"
+	prio="${entry##*:}"
+	used_kb="$(awk -v dev="$dev" '$1 == dev {print $4}' /proc/swaps)"
+
+	if [[ -n "$used_kb" && "$used_kb" -gt 0 ]]; then
+		if /sbin/swapoff "$dev"; then
+			/sbin/swapon -p "$prio" "$dev"
+			logger -t hdd-swap-reclaim "reclaimed chunk=$dev used_kb=${used_kb}"
+		else
+			logger -t hdd-swap-reclaim "swapoff failed chunk=$dev used_kb=${used_kb}"
+		fi
+		exit 0
+	fi
+done
+
+logger -t hdd-swap-reclaim "skip: no used HDD swap chunks"
+```
+1. Make it executable: `sudo chmod +x /usr/local/bin/reclaim-hdd-swap.sh`
+1. Create a oneshot service file: `/etc/systemd/system/hdd-swap-reclaim.service`
+1. Add content to file:
+```
+[Unit]
+Description=Reclaim one HDD swap chunk
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/reclaim-hdd-swap.sh
+```
+1. Create a timer file: `/etc/systemd/system/hdd-swap-reclaim.timer`
+1. Add content to file:
+```
+[Unit]
+Description=Attempt chunk-wise HDD swap reclaim
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+1. Reload manager and enable the timer: `sudo systemctl daemon-reload` and `sudo systemctl enable --now hdd-swap-reclaim.timer`
+1. Manually test one reclaim run: `sudo systemctl start hdd-swap-reclaim.service`
+1. Watch reclaim logs: `journalctl -u hdd-swap-reclaim.service -f`
