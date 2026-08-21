@@ -7,23 +7,48 @@ from enum import IntEnum, auto
 from pathlib import Path
 from typing import List, Optional
 
-import cv2
-import numpy as np
-import onnxruntime as ort
-from filterpy.kalman import KalmanFilter
-from scipy.optimize import linear_sum_assignment
-
-import classification
 import utils
 from config import settings
+
+_mem = utils.get_rss_mb()
+import cv2
+
+utils.log_import_memory("tracking: cv2", _mem)
+
+_mem = utils.get_rss_mb()
+import numpy as np
+
+utils.log_import_memory("tracking: numpy", _mem)
+
+_mem = utils.get_rss_mb()
+import onnxruntime as ort
+
+utils.log_import_memory("tracking: onnxruntime", _mem)
+
+_mem = utils.get_rss_mb()
+from filterpy.kalman import KalmanFilter
+
+utils.log_import_memory("tracking: filterpy", _mem)
+
+_mem = utils.get_rss_mb()
+from scipy.optimize import linear_sum_assignment
+
+utils.log_import_memory("tracking: scipy", _mem)
+
+_mem = utils.get_rss_mb()
+import classification
+
+utils.log_import_memory("tracking: classification (joblib model load)", _mem)
 
 logger = logging.getLogger(__name__)
 
 
+_mem = utils.get_rss_mb()
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
     Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
     providers=["CPUExecutionProvider"],
 )
+utils.log_import_memory("tracking: onnx embedding session", _mem)
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
 
