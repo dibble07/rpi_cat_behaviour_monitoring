@@ -11,33 +11,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-import utils
-from config import SYSTEM, settings
-
-_mem = utils.get_rss_mb()
 import cv2
-
-utils.log_import_memory("processing: cv2", _mem)
-
-_mem = utils.get_rss_mb()
 import numpy as np
 
-utils.log_import_memory("processing: numpy", _mem)
-
+import utils
+from config import SYSTEM, settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
-
-_mem = utils.get_rss_mb()
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
-
-utils.log_import_memory(
-    "processing: tracking (onnxruntime, filterpy, scipy, joblib)", _mem
-)
-
-_mem = utils.get_rss_mb()
 from yolo_ncnn import YOLO_NCNN
-
-utils.log_import_memory("processing: yolo_ncnn (ncnn)", _mem)
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +27,7 @@ logger = logging.getLogger(__name__)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 # load object detection model
-_mem = utils.get_rss_mb()
 MODEL = YOLO_NCNN(Path("models") / settings.MODEL_DETECTION_PATH)
-utils.log_import_memory("processing: YOLO_NCNN model load", _mem)
-
-_mem = utils.get_rss_mb()
 _ = MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=tuple(settings.DETECTION_IMGSZ),
@@ -57,7 +35,6 @@ _ = MODEL(
     iou=settings.NMS_IOU_THRESHOLD,
     max_det=settings.MAX_DETS,
 )
-utils.log_import_memory("processing: YOLO_NCNN warmup inference", _mem)
 
 # define background subtractor
 BACK_SUB = cv2.createBackgroundSubtractorMOG2(

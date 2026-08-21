@@ -30,28 +30,9 @@ faulthandler.enable()
 import threading
 import time
 
-from utils import get_rss_mb, log_import_memory
-
-_m = get_rss_mb()
-from shared import shutdown_event
-
-log_import_memory("shared (numpy, camera)", _m)
-
-_m = get_rss_mb()
 from capture import capture_thread
-
-log_import_memory("capture", _m)
-
-_m = get_rss_mb()
 from monitoring import monitoring_thread
-
-log_import_memory("monitoring", _m)
-
-_m = get_rss_mb()
 from processing import processing_thread
-
-log_import_memory("processing (cv2, ncnn, joblib)", _m)
-
 from shared import shutdown_event
 
 # start threads
