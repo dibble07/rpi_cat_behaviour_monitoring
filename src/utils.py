@@ -1,12 +1,42 @@
 import logging
+import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
+import psutil
 
 logger = logging.getLogger(__name__)
+
+
+def get_rss_mb() -> float:
+    """Return current process RSS memory in MB."""
+    return psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+
+
+def log_import_memory(label: str, before_mb: float) -> float:
+    """Log RSS memory before/after/delta for a significant import block.
+
+    Usage::
+
+        _m = get_rss_mb()
+        import heavy_package
+        log_import_memory("heavy_package", _m)
+
+    Returns the current RSS in MB so it can be chained.
+    """
+    after_mb = get_rss_mb()
+    delta_mb = after_mb - before_mb
+    logger.info(
+        "[mem] %-30s  before=%6.1f MB  after=%6.1f MB  delta=%+.1f MB",
+        label,
+        before_mb,
+        after_mb,
+        delta_mb,
+    )
+    return after_mb
 
 
 def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
