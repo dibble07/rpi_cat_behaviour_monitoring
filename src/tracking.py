@@ -7,12 +7,11 @@ from enum import IntEnum, auto
 from pathlib import Path
 from typing import List, Optional
 
+import cv2
 import numpy as np
 import onnxruntime as ort
 from filterpy.kalman import KalmanFilter
-from PIL import Image
 from scipy.optimize import linear_sum_assignment
-from torchvision import models
 
 import classification
 import utils
@@ -21,10 +20,6 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-_EMBEDDING_PREPROCESS = models.ShuffleNet_V2_X0_5_Weights.DEFAULT.transforms(
-    crop_size=settings.EMBEDDING_IMGSZ,
-    resize_size=settings.EMBEDDING_IMGSZ,
-)
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
     Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
     providers=["CPUExecutionProvider"],
@@ -32,16 +27,32 @@ _embedding_session: ort.InferenceSession = ort.InferenceSession(
 _embedding_input_name = _embedding_session.get_inputs()[0].name
 
 
-def embed_image(image_np: np.ndarray) -> np.ndarray:
+def embed_image(image: np.ndarray) -> np.ndarray:
     """Generate an L2-normalized embedding for an RGB image array using cached ONNX session."""
 
-    image_np = np.asarray(image_np, dtype=np.uint8)
+    # pad to square with grey filler
+    h, w = image.shape[:2]
+    if h != w:
+        side = max(h, w)
+        padded = np.full((side, side, image.shape[2]), 128, dtype=image.dtype)
+        y_off = (side - h) // 2
+        x_off = (side - w) // 2
+        padded[y_off : y_off + h, x_off : x_off + w] = image
+        image = padded
 
-    tensor = (
-        _EMBEDDING_PREPROCESS(Image.fromarray(image_np)).unsqueeze(0).to("cpu").half()
+    # resize image
+    imgsz = settings.EMBEDDING_IMGSZ
+    cropped = cv2.resize(image, (imgsz, imgsz), interpolation=cv2.INTER_LINEAR)
+
+    # imagenet normalisation
+    mean, std = np.array([0.485, 0.456, 0.406]), np.array([0.229, 0.224, 0.225])
+    img = (cropped / 255.0 - mean) / std
+    tensor = img.transpose(2, 0, 1)[np.newaxis].astype(np.float16)
+
+    # create and normalise embedding
+    embedding = _embedding_session.run(None, {_embedding_input_name: tensor})[0].astype(
+        np.float32
     )
-    embedding = _embedding_session.run(None, {_embedding_input_name: tensor.numpy()})[0]
-    embedding = embedding.astype(np.float32)
     denom = np.linalg.norm(embedding, ord=2, axis=1, keepdims=True)
     embedding = embedding / np.clip(denom, 1e-12, None)
     return embedding[0]
@@ -74,24 +85,27 @@ class TrackFrame:
     """Detection snapshot used by the tracker."""
 
     frame_hash: str
-    image: np.ndarray
+    image: Optional[np.ndarray]
     bbox: utils.Bbox
     object_name: str
     confidence: float
-    roi: np.ndarray = field(init=False, repr=False)
+    frame_wh: tuple[int, int] = field(init=False)
+    roi: Optional[np.ndarray] = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
     _cat_name_proba: Optional[np.ndarray] = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
-        h, w = self.image.shape[:2]
+        if self.image is None:
+            raise ValueError("TrackFrame.image is required at initialization")
+        self.frame_wh = tuple(reversed(self.image.shape[:2]))
         x1, y1, x2, y2 = self.bbox.xyxy
         x1, y1, x2, y2 = utils.expand_bbox_from_bounds(
             x_min=x1,
             x_max=x2,
             y_min=y1,
             y_max=y2,
-            image_width=w,
-            image_height=h,
+            image_width=self.frame_wh[0],
+            image_height=self.frame_wh[1],
             pad=0,
             target_aspect_ratio=1.0,
         )
@@ -100,9 +114,13 @@ class TrackFrame:
     @property
     def roi_embedding(self) -> np.ndarray:
         if self._roi_embedding is None:
+            if self.roi is None:
+                raise RuntimeError("TrackFrame ROI is not available for embedding")
             start = datetime.now()
             self._roi_embedding = embed_image(self.roi)
             utils.log_timing(logger, "Embedding", start, self.frame_hash)
+            self.roi = None
+            self.image = None
         return self._roi_embedding
 
     @property
@@ -152,6 +170,7 @@ class Track:
         self._first_detection_index = frame_index
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
         self._frame_hash = frame_hash
+        self._expired_at_frame_count: Optional[int] = None
         self.append(frame)
 
     def __len__(self) -> int:
@@ -289,7 +308,7 @@ class Track:
             case None:
                 state = TrackState.NEW
             case TrackState.NEW:
-                new_frame_count = int(np.ceil(settings.FPS) * settings.TRACK_NEW_DUR)
+                new_frame_count = int(np.ceil(settings.FPS * settings.TRACK_NEW_DUR))
                 frames_init = self._frames[
                     self._first_detection_index : self._first_detection_index
                     + new_frame_count
@@ -345,7 +364,10 @@ class Track:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
 
-        frame_wh = tuple(reversed(last_valid_frame.image.shape[:2]))
+        if state == TrackState.EXPIRED and prev_summary.state != TrackState.EXPIRED:
+            self._expired_at_frame_count = frame_count
+
+        frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
@@ -406,16 +428,13 @@ class TrackManager:
             track for track in self.tracks if track.summary.state < TrackState.EXPIRED
         ]
 
-    def get_track(self, track_id: int) -> Optional[Track]:
+    def get_track(self, track_id: int) -> Track:
         matches = [track for track in self.tracks if track.track_id == track_id]
-        if len(matches) == 0:
-            return None
-        elif len(matches) == 1:
-            return matches[0]
-        else:
+        if len(matches) != 1:
             raise ValueError(
-                f"Expected one track with id {track_id}, found {len(matches)}"
+                f"Expected exactly one track with id {track_id}, found {len(matches)}"
             )
+        return matches[0]
 
     def _new_track(
         self, track_frame: TrackFrame, frame_index: int, frame_hash: str
@@ -477,9 +496,15 @@ class TrackManager:
             if candidate_index not in matched_candidates:
                 self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
 
-        # prune expired tracks
+        # prune expired tracks that have been processed by the recording buffer
         n_tracks = len(self.tracks)
-        self.tracks = [t for t in self.tracks if t.summary.state < TrackState.EXPIRED]
+        self.tracks = [
+            t
+            for t in self.tracks
+            if t.summary.state < TrackState.EXPIRED
+            or t.summary.frame_count - t._expired_at_frame_count
+            <= np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
+        ]
         n_pruned = n_tracks - len(self.tracks)
         if n_pruned:
             logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
