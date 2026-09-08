@@ -15,7 +15,7 @@ from scipy.optimize import linear_sum_assignment
 
 import classification
 import utils
-from config import settings
+from config import SYSTEM, settings
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +119,9 @@ class TrackFrame:
             start = datetime.now()
             self._roi_embedding = embed_image(self.roi)
             utils.log_timing(logger, "Embedding", start, self.frame_hash)
-            self.roi = None
-            self.image = None
+            if SYSTEM == "Linux":
+                self.roi = None
+                self.image = None
         return self._roi_embedding
 
     @property
