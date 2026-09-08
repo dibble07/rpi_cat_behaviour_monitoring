@@ -60,7 +60,6 @@ OBJECT_COLOUR_MAP = {
 CAT_COLOUR_MAP = {
     "fluffy": (255, 0, 0),  # blue
     "tabby": (0, 165, 255),  # orange
-    "na": (19, 69, 139),  # brown
 }
 
 
