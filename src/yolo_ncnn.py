@@ -64,6 +64,7 @@ class YOLO_NCNN:
         conf: Optional[float] = None,
         iou: Optional[float] = None,
         max_det: Optional[int] = None,
+        verbose: bool = True,
     ) -> list[SimpleNamespace]:
         eff_conf = self.conf if conf is None else conf
         eff_iou = self.iou if iou is None else iou
