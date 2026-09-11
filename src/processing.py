@@ -512,7 +512,7 @@ def processing_thread():
                     # clear buffers
                     processing_buffer.clear()
                     pre_buffer.clear()
-                    track_manager = TrackManager()
+                    track_manager.remove_tracks("all")
                     logger.info(
                         f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
@@ -611,7 +611,7 @@ def processing_thread():
                                 f"({frame_recording.hash}) Queued {replayed} delayed frame(s) for replay"
                             )
                             pre_buffer.clear()
-                            track_manager = TrackManager()
+                            track_manager.remove_tracks("all")
                             prev_frame = None
                             frames_since_detection = 0
                             logger.info(

@@ -499,16 +499,31 @@ class TrackManager:
 
         # prune expired tracks that have been processed by the recording buffer
         n_tracks = len(self.tracks)
-        self.tracks = [
-            t
-            for t in self.tracks
-            if t.summary.state < TrackState.EXPIRED
-            or t.summary.frame_count - t._expired_at_frame_count
-            <= np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
-        ]
-        n_pruned = n_tracks - len(self.tracks)
-        if n_pruned:
+        self.remove_tracks("expired")
+        if n_pruned := n_tracks - len(self.tracks):
             logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
+
+    def remove_tracks(self, selection: str) -> None:
+        """Remove tracks based on the selection criteria"""
+
+        # select tracks to remove
+        match selection:
+            case "expired":
+                tracks_to_delete = [
+                    t
+                    for t in self.tracks
+                    if t.summary.state >= TrackState.EXPIRED
+                    and t.summary.frame_count - t._expired_at_frame_count
+                    > np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
+                ]
+            case "all":
+                tracks_to_delete = self.tracks.copy()
+            case _:
+                raise ValueError(f"Invalid selection for pruning tracks: {selection}")
+
+        # remove selected tracks
+        for track in tracks_to_delete:
+            self.tracks.remove(track)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
         mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
