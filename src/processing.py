@@ -392,12 +392,14 @@ def _release_writers(
     log_msg = f" ({log_msg})" if log_msg else ""
     if wtr is not None:
         wtr.release()
-        path_msg = f": {wtr.output_path}" if wtr.output_path else ""
-        logger.warning(f"{hash_msg}Saving recording{log_msg}{path_msg}")
+        final_path = wtr.output_path.replace(".tmp.", ".")
+        os.rename(wtr.output_path, final_path)
+        logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
     if wtr_r is not None:
         wtr_r.release()
-        path_msg = f": {wtr_r.output_path}" if wtr_r.output_path else ""
-        logger.warning(f"{hash_msg}Saving raw recording{log_msg}{path_msg}")
+        final_path = wtr_r.output_path.replace(".tmp.", ".")
+        os.rename(wtr_r.output_path, final_path)
+        logger.warning(f"{hash_msg}Saving raw recording{log_msg}: {final_path}")
 
     # free swap memory
     gc.collect()
@@ -529,7 +531,7 @@ def processing_thread():
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             out_path = os.path.join(
                                 _get_output_dir(),
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.mp4",
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.tmp.mp4",
                             )
                             writer = FFmpegWriter(
                                 out_path,
@@ -545,7 +547,7 @@ def processing_thread():
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             out_raw_path = os.path.join(
                                 _get_output_dir(),
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.mp4",
+                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.tmp.mp4",
                             )
                             writer_raw = FFmpegWriter(
                                 out_raw_path,
