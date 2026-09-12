@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import IntEnum, auto
 from pathlib import Path
 from typing import List, Optional
@@ -149,12 +151,15 @@ class TrackSummary:
     track_id: int
     frame_count: int
     first_detection_index: int
+    first_detection_hash: str
     latest_detection_index: int
+    last_detection_hash: str
     last_frame: Optional[TrackFrame]
     last_valid_frame: TrackFrame
     state: TrackState
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
+    confirmed: bool = False
     cat_name: Optional[str] = None
     cat_conf: Optional[float] = None
     cat_name_entropy: Optional[str] = None
@@ -169,6 +174,7 @@ class Track:
     ) -> None:
         self.track_id = track_id
         self._first_detection_index = frame_index
+        self._first_detection_hash = frame_hash
         self._frames: list[Optional[TrackFrame]] = [None] * frame_index
         self._frame_hash = frame_hash
         self._expired_at_frame_count: Optional[int] = None
@@ -348,6 +354,10 @@ class Track:
                     state = TrackState.STALE
             case TrackState.EXPIRED:
                 state = TrackState.EXPIRED
+        confirmed = getattr(prev_summary, "confirmed", False) or state in {
+            TrackState.ACTIVE,
+            TrackState.STALE,
+        }
 
         # aggregate cat name based weighted by entropy
         if last_frame is not None:
@@ -367,18 +377,23 @@ class Track:
 
         if state == TrackState.EXPIRED and prev_summary.state != TrackState.EXPIRED:
             self._expired_at_frame_count = frame_count
+        if state in {TrackState.ACTIVE, TrackState.STALE}:
+            self._confirmed = True
 
         frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
             track_id=self.track_id,
             frame_count=frame_count,
             first_detection_index=self._first_detection_index,
+            first_detection_hash=self._first_detection_hash,
             last_frame=last_frame,
             last_valid_frame=last_valid_frame,
             latest_detection_index=latest_detection_index,
+            last_detection_hash=last_valid_frame.frame_hash,
             history=history,
             state=state,
             estimated_bbox=self._next_bbox_from_kf(frame_wh),
+            confirmed=confirmed,
             cat_name=cat_name,
             cat_conf=cat_conf,
         )
@@ -408,8 +423,37 @@ class TrackManager:
     """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
+        self.manager_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.tracks: list[Track] = []
         self._next_track_id = 1
+
+    def _export_track_summary(
+        self,
+        track: Track,
+        video_name: str,
+        video_hashes: list[str],
+        video_start_timestamp: datetime,
+    ) -> None:
+        start_offset_s = (
+            video_hashes.index(track.summary.first_detection_hash) / settings.FPS
+        )
+        end_offset_s = (
+            video_hashes.index(track.summary.last_detection_hash) / settings.FPS
+        )
+        row = {
+            "video_name": video_name,
+            "video_timestamp_start_s": start_offset_s,
+            "video_timestamp_end_s": end_offset_s,
+            "track_manager_id_timestamp": self.manager_id,
+            "cat_id": track.summary.cat_name,
+            "track_start_timestamp": (
+                video_start_timestamp + timedelta(seconds=start_offset_s)
+            ).isoformat(),
+        }
+
+        output_path = os.path.join(settings.OUTPUT_DIR, utils._TRACK_SUMMARIES_FILE)
+        with open(output_path, "a") as f:
+            f.write(json.dumps(row, default=str) + "\n")
 
     def __len__(self) -> int:
         lengths = {len(track) for track in self.tracks}
@@ -449,7 +493,14 @@ class TrackManager:
         self._next_track_id += 1
         return track
 
-    def update(self, candidates: List[TrackFrame], frame_hash: str) -> None:
+    def update(
+        self,
+        candidates: List[TrackFrame],
+        frame_hash: str,
+        video_name: Optional[str] = None,
+        video_hashes: Optional[list[str]] = None,
+        video_start_timestamp: Optional[datetime] = None,
+    ) -> None:
 
         # store frame hash on all tracks for logging
         for track in self.tracks:
@@ -499,11 +550,22 @@ class TrackManager:
 
         # prune expired tracks that have been processed by the recording buffer
         n_tracks = len(self.tracks)
-        self.remove_tracks("expired")
+        self.remove_tracks(
+            "expired",
+            video_name=video_name,
+            video_hashes=video_hashes,
+            video_start_timestamp=video_start_timestamp,
+        )
         if n_pruned := n_tracks - len(self.tracks):
             logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
 
-    def remove_tracks(self, selection: str) -> None:
+    def remove_tracks(
+        self,
+        selection: str,
+        video_name: Optional[str] = None,
+        video_hashes: Optional[list[str]] = None,
+        video_start_timestamp: Optional[datetime] = None,
+    ) -> None:
         """Remove tracks based on the selection criteria"""
 
         # select tracks to remove
@@ -523,6 +585,13 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
+            if track.summary.confirmed and track.summary.cat_name is not None:
+                self._export_track_summary(
+                    track,
+                    video_name,
+                    video_hashes,
+                    video_start_timestamp,
+                )
             self.tracks.remove(track)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:
