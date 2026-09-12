@@ -482,7 +482,7 @@ def processing_thread():
 
         # log processing rate
         elapsed_capture = utils.log_timing(
-            logger, "Processing", start_capture, frame_captured.hash, logging.INFO
+            logger, "Processing", start_capture, frame_captured.hash
         )
 
         # process frames in the buffer if enough frames have been captured
@@ -661,7 +661,7 @@ def processing_thread():
 
         # log recording rate
         elapsed_recording = utils.log_timing(
-            logger, "Recording", start_recording, frame_captured.hash, logging.INFO
+            logger, "Recording", start_recording, frame_captured.hash
         )
 
         # log overall FPS
