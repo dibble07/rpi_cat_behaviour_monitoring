@@ -420,9 +420,9 @@ def processing_thread():
     prev_frame = None
     frames_since_detection = 0
     track_manager = TrackManager()
-    video_hashes: list[str] = []
+    video_hashes = []  # type: ignore[var-annotated]
     video_name = ""
-    video_start_timestamp: Optional[datetime] = None
+    video_start_timestamp = None
 
     while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
 
