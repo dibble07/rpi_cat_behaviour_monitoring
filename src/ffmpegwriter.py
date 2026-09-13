@@ -54,7 +54,7 @@ class FFmpegWriter:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=None,
+            stderr=subprocess.DEVNULL,
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {path}")
