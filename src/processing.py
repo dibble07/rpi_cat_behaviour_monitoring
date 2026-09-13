@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import ctypes
-import gc
 import hashlib
 import logging
 import os
@@ -401,11 +399,6 @@ def _release_writers(
         os.rename(wtr_r.output_path, final_path)
         logger.warning(f"{hash_msg}Saving raw recording{log_msg}: {final_path}")
 
-    # free swap memory
-    gc.collect()
-    if SYSTEM == "Linux":
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-
     return None, None
 
 
@@ -532,9 +525,6 @@ def processing_thread():
                     logger.info(
                         f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
-                    gc.collect()
-                    if SYSTEM == "Linux":
-                        ctypes.CDLL("libc.so.6").malloc_trim(0)
 
                 else:
 
