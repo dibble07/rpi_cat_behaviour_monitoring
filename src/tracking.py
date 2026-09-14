@@ -423,7 +423,6 @@ class TrackManager:
     """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
-        self.manager_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.tracks: list[Track] = []
         self._next_track_id = 1
 
@@ -444,7 +443,6 @@ class TrackManager:
             "video_name": video_name,
             "video_timestamp_start_s": start_offset_s,
             "video_timestamp_end_s": end_offset_s,
-            "track_manager_id_timestamp": self.manager_id,
             "cat_id": track.summary.cat_name,
             "track_start_timestamp": (
                 video_start_timestamp + timedelta(seconds=start_offset_s)
