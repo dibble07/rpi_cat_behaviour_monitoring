@@ -583,7 +583,11 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
-            if track.summary.confirmed and track.summary.cat_name is not None:
+            if (
+                track.summary.confirmed
+                and track.summary.last_valid_frame.object_name
+                not in settings.EXCLUDED_OBJECTS
+            ):
                 self._export_track_summary(
                     track,
                     video_name,
