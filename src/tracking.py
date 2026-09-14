@@ -436,9 +436,10 @@ class TrackManager:
         start_offset_s = (
             video_hashes.index(track.summary.first_detection_hash) / settings.FPS
         )
-        end_offset_s = (
-            video_hashes.index(track.summary.last_detection_hash) / settings.FPS
-        )
+        video_track_hashes = [
+            f.frame_hash for f in track._frames if f and f.frame_hash in video_hashes
+        ]
+        end_offset_s = video_hashes.index(video_track_hashes[-1]) / settings.FPS
         row = {
             "video_name": video_name,
             "video_timestamp_start_s": start_offset_s,
