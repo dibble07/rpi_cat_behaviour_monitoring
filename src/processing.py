@@ -546,7 +546,7 @@ def processing_thread():
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
-                                settings.MJPEG_QV,
+                                settings.VIDEO_QUALITY,
                                 raw=False,
                             )
                             logger.warning(
@@ -566,7 +566,7 @@ def processing_thread():
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
-                                settings.MJPEG_QV,
+                                settings.VIDEO_QUALITY,
                                 raw=True,
                             )
                             logger.warning(

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class FFmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg MPEG-4 encoding."""
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg H.264 encoding."""
 
     def __init__(
         self,
@@ -21,7 +21,7 @@ class FFmpegWriter:
         fps: float,
         width: int,
         height: int,
-        qv: int,
+        quality: int,
         raw: bool = False,
     ):
         self.output_path = path
@@ -43,9 +43,13 @@ class FFmpegWriter:
             "-i",
             "pipe:0",
             "-c:v",
-            "mpeg4",
-            "-q:v",
-            str(qv),
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            str(quality),
+            "-movflags",
+            "faststart",
             "-pix_fmt",
             "yuv420p",
             path,
