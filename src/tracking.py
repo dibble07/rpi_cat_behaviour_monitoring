@@ -423,7 +423,6 @@ class TrackManager:
     """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
-        self.manager_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.tracks: list[Track] = []
         self._next_track_id = 1
 
@@ -437,14 +436,14 @@ class TrackManager:
         start_offset_s = (
             video_hashes.index(track.summary.first_detection_hash) / settings.FPS
         )
-        end_offset_s = (
-            video_hashes.index(track.summary.last_detection_hash) / settings.FPS
-        )
+        video_track_hashes = [
+            f.frame_hash for f in track._frames if f and f.frame_hash in video_hashes
+        ]
+        end_offset_s = video_hashes.index(video_track_hashes[-1]) / settings.FPS
         row = {
             "video_name": video_name,
             "video_timestamp_start_s": start_offset_s,
             "video_timestamp_end_s": end_offset_s,
-            "track_manager_id_timestamp": self.manager_id,
             "cat_id": track.summary.cat_name,
             "track_start_timestamp": (
                 video_start_timestamp + timedelta(seconds=start_offset_s)
@@ -585,7 +584,11 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
-            if track.summary.confirmed and track.summary.cat_name is not None:
+            if (
+                track.summary.confirmed
+                and track.summary.last_valid_frame.object_name
+                not in settings.EXCLUDED_OBJECTS
+            ):
                 self._export_track_summary(
                     track,
                     video_name,
