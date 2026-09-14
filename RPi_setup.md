@@ -41,7 +41,9 @@ git fetch origin
 git checkout test
 git reset --hard origin/test
 /home/rpdibble/.local/bin/uv sync --no-dev
-.venv/bin/python src/app.py
+.venv/bin/python src/app.py &
+.venv/bin/python src/web_player.py &
+wait -n
 ```
 1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
