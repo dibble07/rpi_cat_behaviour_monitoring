@@ -12,6 +12,7 @@ import numpy as np
 from camera import get_camera
 
 logger = logging.getLogger(__name__)
+thread_exception: BaseException | None = None
 
 
 def _get_mock_video_path_from_argv() -> str | None:
@@ -34,8 +35,10 @@ def _handle_exit(signum, _):
 
 def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
     """Trigger application shutdown when any thread raises an unhandled exception"""
+    global thread_exception
     if args.exc_type in (SystemExit, KeyboardInterrupt):
         return
+    thread_exception = args.exc_value
     logger.critical(
         f"Unhandled exception in thread '{args.thread.name}':\n"
         + "".join(
