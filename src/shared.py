@@ -1,6 +1,8 @@
+import argparse
 import logging
 import queue
 import signal
+import sys
 import threading
 import traceback
 from datetime import datetime
@@ -12,8 +14,16 @@ from camera import get_camera
 logger = logging.getLogger(__name__)
 
 
+def _get_mock_video_path_from_argv() -> str | None:
+    """Extract an optional mock video path from process argv."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--video", "--video_path", dest="video_path")
+    args, _ = parser.parse_known_args(sys.argv[1:])
+    return args.video_path
+
+
 # prepare camera
-cam = get_camera()
+cam = get_camera(_get_mock_video_path_from_argv())
 
 
 def _handle_exit(signum, _):
