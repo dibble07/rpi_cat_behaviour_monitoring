@@ -45,7 +45,7 @@ class FFmpegWriter:
             "-c:v",
             "libx264",
             "-preset",
-            "fast",
+            "veryfast",
             "-crf",
             str(quality),
             "-movflags",
