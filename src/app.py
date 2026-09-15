@@ -30,10 +30,10 @@ faulthandler.enable()
 import threading
 import time
 
+import shared
 from capture import capture_thread
 from monitoring import monitoring_thread
 from processing import processing_thread
-from shared import shutdown_event
 
 # start threads
 capture_t = threading.Thread(target=capture_thread)
@@ -45,12 +45,12 @@ monitoring_t.start()
 
 # keep main thread alive until shutdown is requested
 try:
-    while not shutdown_event.is_set():
+    while not shared.shutdown_event.is_set():
         time.sleep(0.1)
 except KeyboardInterrupt:
-    shutdown_event.set()
+    shared.shutdown_event.set()
 finally:
-    shutdown_event.set()
+    shared.shutdown_event.set()
 
 # close down application
 logger.info("Waiting for threads to finish...")
@@ -63,4 +63,7 @@ if processing_t.is_alive():
 monitoring_t.join(timeout=5)
 if monitoring_t.is_alive():
     logger.warning("Monitoring thread did not exit cleanly within timeout")
+if shared.thread_exception is not None:
+    logger.error("Application shutdown due to an unhandled thread exception")
+    raise SystemExit(1)
 logger.info("Application shutdown complete")
