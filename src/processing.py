@@ -533,13 +533,11 @@ def processing_thread():
 
                         # init recordings
                         video_start_timestamp = frame_recording.timestamp
+                        video_hashes.clear()
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             out_path = os.path.join(
                                 _get_output_dir(),
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.tmp.mp4",
-                            )
-                            video_name = os.path.basename(
-                                out_path.replace(".tmp.", ".")
                             )
                             writer = FFmpegWriter(
                                 out_path,
@@ -557,10 +555,6 @@ def processing_thread():
                                 _get_output_dir(),
                                 f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.tmp.mp4",
                             )
-                            if not video_name:
-                                video_name = os.path.basename(
-                                    out_raw_path.replace(".tmp.", ".")
-                                )
                             writer_raw = FFmpegWriter(
                                 out_raw_path,
                                 settings.FPS,
@@ -572,6 +566,8 @@ def processing_thread():
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
                             )
+                        video_path = (writer if writer else writer_raw).output_path
+                        video_name = os.path.basename(video_path.replace(".tmp.", "."))
 
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
@@ -614,9 +610,6 @@ def processing_thread():
                     writer, writer_raw = _release_writers(
                         writer, writer_raw, frame_recording.hash, log_msg
                     )
-                    video_start_timestamp = None
-                    video_name = ""
-                    video_hashes.clear()
 
                     if not track_manager.non_expired_tracks:
                         replayed = len(processing_buffer)
@@ -669,7 +662,5 @@ def processing_thread():
         video_start_timestamp=video_start_timestamp,
     )
     writer, writer_raw = _release_writers(writer, writer_raw)
-    video_name = ""
-    video_hashes.clear()
 
     logger.info("Processing thread stopped")
