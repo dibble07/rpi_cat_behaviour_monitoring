@@ -51,7 +51,7 @@ class Cv2_camera:
                 logger.info(
                     f"Buffering last frame ({self._buffer_count}/{self._buffer_frames})"
                 )
-                return self._last_frame
+                return np.clip(self._last_frame - self._buffer_count, 0, 255)
             else:
                 logger.info("Buffer period expired, returning None")
                 return None
