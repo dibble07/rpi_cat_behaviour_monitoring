@@ -6,6 +6,8 @@ from dynaconf import Dynaconf
 
 # establish current platform
 SYSTEM = system()
+INT_MOUNT = "/"
+EXT_MOUNT = "/mnt/hdd"
 
 # load settings
 _SETTINGS_PATH_GENERAL = os.path.join(os.path.dirname(__file__), "settings.toml")

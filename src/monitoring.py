@@ -6,7 +6,7 @@ import time
 
 import psutil
 
-from config import SYSTEM, settings
+from config import EXT_MOUNT, INT_MOUNT, SYSTEM, settings
 from shared import (
     frame_queue,
     recording_queue_size,
@@ -15,9 +15,6 @@ from shared import (
 )
 
 logger = logging.getLogger(__name__)
-
-_INT_MOUNT = "/"
-_EXT_MOUNT = "/mnt/hdd"
 
 
 def _base_device_name(device_path: str) -> str:
@@ -38,9 +35,9 @@ def monitoring_thread() -> None:
     # identify internal/external device names
     part = {p.mountpoint: p.device for p in psutil.disk_partitions()}
     _init_counters = psutil.disk_io_counters(perdisk=True)
-    int_dev = _base_device_name(part[_INT_MOUNT]) if _INT_MOUNT in part else None
+    int_dev = _base_device_name(part[INT_MOUNT]) if INT_MOUNT in part else None
     int_dev = int_dev if int_dev and int_dev in _init_counters else None
-    ext_dev = _base_device_name(part[_EXT_MOUNT]) if _EXT_MOUNT in part else None
+    ext_dev = _base_device_name(part[EXT_MOUNT]) if EXT_MOUNT in part else None
     ext_dev = ext_dev if ext_dev and ext_dev in _init_counters else None
     if not int_dev or not ext_dev:
         logger.warning(

@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 import utils
-from config import SYSTEM, settings
+from config import EXT_MOUNT, settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
@@ -364,16 +364,13 @@ class Frame:
         return self._image_annotated
 
 
-_HDD_MOUNT = "/mnt/hdd"
-
-
 def _get_output_dir() -> str:
-    if os.path.ismount(_HDD_MOUNT):
-        dir = os.path.join(_HDD_MOUNT, settings.OUTPUT_DIR)
+    if os.path.ismount(EXT_MOUNT):
+        dir = os.path.join(EXT_MOUNT, settings.OUTPUT_DIR)
     else:
         dir = settings.OUTPUT_DIR
         logger.warning(
-            f"HDD not mounted at {_HDD_MOUNT}, falling back to SD card output dir"
+            f"HDD not mounted at {EXT_MOUNT}, falling back to SD card output dir"
         )
     os.makedirs(dir, exist_ok=True)
     return dir
