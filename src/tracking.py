@@ -18,8 +18,46 @@ from scipy.optimize import linear_sum_assignment
 import classification
 import utils
 from config import SYSTEM, settings
+from ffmpegwriter import FFmpegWriter
 
 logger = logging.getLogger(__name__)
+
+
+class VideoHashMap:
+    def __init__(self) -> None:
+        self._videos: dict[str, dict[str, object]] = {}
+
+    def __contains__(self, frame_hash: str) -> bool:
+        return any(frame_hash in video["hashes"] for video in self._videos.values())  # type: ignore[operator]
+
+    def append(
+        self,
+        wtr: Optional[FFmpegWriter],
+        wtr_r: Optional[FFmpegWriter],
+        frame_hash: str,
+    ) -> None:
+        if frame_hash in self:
+            raise ValueError(f"Duplicate frame hash in video map: {frame_hash}")
+        writer = wtr or wtr_r
+        video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
+        if video_name not in self._videos:
+            self._videos[video_name] = {
+                "initial_timestamp": datetime.strptime(
+                    writer.init_timestamp, "%Y%m%d_%H%M%S"
+                ),
+                "hashes": [],
+            }
+        self._videos[video_name]["hashes"].append(frame_hash)  # type: ignore[attr-defined]
+
+    def get(self, frame_hash: str) -> dict[str, object]:
+        for video_name, video in self._videos.items():
+            if frame_hash in video["hashes"]:  # type: ignore[operator]
+                return {
+                    "video_name": video_name,
+                    "video_start_timestamp": video["initial_timestamp"],
+                    "video_hash_index": video["hashes"].index(frame_hash),  # type: ignore[attr-defined]
+                }
+        raise KeyError(f"Frame hash not found in video map: {frame_hash}")
 
 
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
@@ -429,30 +467,34 @@ class TrackManager:
     def _export_track_summary(
         self,
         track: Track,
-        video_name: str,
-        video_hashes: list[str],
-        video_start_timestamp: datetime,
+        video_hash_map: VideoHashMap,
     ) -> None:
-        start_offset_s = (
-            video_hashes.index(track.summary.first_detection_hash) / settings.FPS
-        )
         video_track_hashes = [
-            f.frame_hash for f in track._frames if f and f.frame_hash in video_hashes
+            f.frame_hash for f in track._frames if f and f.frame_hash in video_hash_map
         ]
-        end_offset_s = video_hashes.index(video_track_hashes[-1]) / settings.FPS
-        row = {
-            "video_name": video_name,
-            "video_timestamp_start_s": start_offset_s,
-            "video_timestamp_end_s": end_offset_s,
-            "cat_id": track.summary.cat_name,
-            "track_start_timestamp": (
-                video_start_timestamp + timedelta(seconds=start_offset_s)
-            ).isoformat(),
-        }
+        if track.summary.first_detection_hash in video_hash_map and video_track_hashes:
+            start_match = video_hash_map.get(track.summary.first_detection_hash)
+            end_match = video_hash_map.get(video_track_hashes[-1])
+            start_offset_s = start_match["video_hash_index"] / settings.FPS
+            end_offset_s = end_match["video_hash_index"] / settings.FPS
+            row = {
+                "video_name": start_match["video_name"],
+                "video_timestamp_start_s": start_offset_s,
+                "video_timestamp_end_s": end_offset_s,
+                "cat_id": track.summary.cat_name,
+                "track_start_timestamp": (
+                    start_match["video_start_timestamp"]  # type: ignore[operator]
+                    + timedelta(seconds=start_offset_s)
+                ).isoformat(),  # type: ignore[attr-defined]
+            }
 
-        output_path = os.path.join(settings.OUTPUT_DIR, utils._TRACK_SUMMARIES_FILE)
-        with open(output_path, "a") as f:
-            f.write(json.dumps(row, default=str) + "\n")
+            output_path = os.path.join(settings.OUTPUT_DIR, utils._TRACK_SUMMARIES_FILE)
+            with open(output_path, "a") as f:
+                f.write(json.dumps(row, default=str) + "\n")
+        else:
+            logger.warning(
+                f"Track {track.track_id} could not be exported because its frames are not in the video hash map."
+            )
 
     def __len__(self) -> int:
         lengths = {len(track) for track in self.tracks}
@@ -496,9 +538,7 @@ class TrackManager:
         self,
         candidates: List[TrackFrame],
         frame_hash: str,
-        video_name: Optional[str] = None,
-        video_hashes: Optional[list[str]] = None,
-        video_start_timestamp: Optional[datetime] = None,
+        video_hash_map: VideoHashMap,
     ) -> None:
 
         # store frame hash on all tracks for logging
@@ -551,9 +591,7 @@ class TrackManager:
         n_tracks = len(self.tracks)
         self.remove_tracks(
             "expired",
-            video_name=video_name,
-            video_hashes=video_hashes,
-            video_start_timestamp=video_start_timestamp,
+            video_hash_map=video_hash_map,
         )
         if n_pruned := n_tracks - len(self.tracks):
             logger.debug(f"({frame_hash}) Pruned {n_pruned} expired track(s)")
@@ -561,9 +599,7 @@ class TrackManager:
     def remove_tracks(
         self,
         selection: str,
-        video_name: Optional[str] = None,
-        video_hashes: Optional[list[str]] = None,
-        video_start_timestamp: Optional[datetime] = None,
+        video_hash_map: VideoHashMap,
     ) -> None:
         """Remove tracks based on the selection criteria"""
 
@@ -589,12 +625,7 @@ class TrackManager:
                 and track.summary.last_valid_frame.object_name
                 not in settings.EXCLUDED_OBJECTS
             ):
-                self._export_track_summary(
-                    track,
-                    video_name,
-                    video_hashes,
-                    video_start_timestamp,
-                )
+                self._export_track_summary(track, video_hash_map)
             self.tracks.remove(track)
 
     def all_tracks_mask(self, frame_width: int, frame_height: int) -> np.ndarray:

@@ -16,7 +16,7 @@ import utils
 from config import settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
-from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
+from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
 from yolo_ncnn import YOLO_NCNN
 
 logger = logging.getLogger(__name__)
@@ -405,9 +405,7 @@ def processing_thread():
     prev_frame = None
     frames_since_detection = 0
     track_manager = TrackManager()
-    video_hashes = []  # type: ignore[var-annotated]
-    video_name = ""
-    video_start_timestamp = None
+    video_hash_map = VideoHashMap()
 
     while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
 
@@ -438,9 +436,7 @@ def processing_thread():
         track_manager.update(
             track_frames,
             frame_captured.hash,
-            video_name=video_name,
-            video_hashes=video_hashes,
-            video_start_timestamp=video_start_timestamp,
+            video_hash_map=video_hash_map,
         )
         frame_captured.processing_track_summaries = [
             t.summary for t in track_manager.non_expired_tracks
@@ -501,12 +497,7 @@ def processing_thread():
                     # clear buffers
                     processing_buffer.clear()
                     pre_buffer.clear()
-                    track_manager.remove_tracks(
-                        "all",
-                        video_name=video_name,
-                        video_hashes=video_hashes,
-                        video_start_timestamp=video_start_timestamp,
-                    )
+                    track_manager.remove_tracks("all", video_hash_map=video_hash_map)
                     logger.info(
                         f"({frame_recording.hash}) Clearing buffer and Tracks due to detection of excluded object"
                     )
@@ -517,8 +508,6 @@ def processing_thread():
                     if not recording:
 
                         # init recordings
-                        video_start_timestamp = frame_recording.timestamp
-                        video_hashes.clear()
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             writer = FFmpegWriter(
                                 frame_recording.timestamp.strftime("%Y%m%d_%H%M%S"),
@@ -543,14 +532,11 @@ def processing_thread():
                             logger.warning(
                                 f"({frame_recording.hash}) Starting raw recording: {writer_raw.output_path}"
                             )
-                        video_path = (writer if writer else writer_raw).output_path
-                        video_name = os.path.basename(video_path.replace(".tmp.", "."))
-
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            video_hashes.append(bf.hash)
+                            video_hash_map.append(writer, writer_raw, bf.hash)
                             if writer is not None:
                                 writer.write(bf.image_annotated, bf.hash)
                             if writer_raw is not None:
@@ -566,7 +552,7 @@ def processing_thread():
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
                     _ = frame_recording.image_annotated
-                    video_hashes.append(frame_recording.hash)
+                    video_hash_map.append(writer, writer_raw, frame_recording.hash)
                     if writer is not None:
                         writer.write(
                             frame_recording.image_annotated, frame_recording.hash
@@ -601,10 +587,7 @@ def processing_thread():
                             )
                             pre_buffer.clear()
                             track_manager.remove_tracks(
-                                "all",
-                                video_name=video_name,
-                                video_hashes=video_hashes,
-                                video_start_timestamp=video_start_timestamp,
+                                "all", video_hash_map=video_hash_map
                             )
                             prev_frame = None
                             frames_since_detection = 0
@@ -632,12 +615,7 @@ def processing_thread():
     if processing_buffer:
         logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
         processing_buffer.clear()
-    track_manager.remove_tracks(
-        "all",
-        video_name=video_name,
-        video_hashes=video_hashes,
-        video_start_timestamp=video_start_timestamp,
-    )
+    track_manager.remove_tracks("all", video_hash_map=video_hash_map)
     writer, writer_raw = _release_writers(writer, writer_raw)
 
     logger.info("Processing thread stopped")
