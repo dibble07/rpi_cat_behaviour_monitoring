@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 import utils
-from config import EXT_MOUNT, settings
+from config import settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary
@@ -364,18 +364,6 @@ class Frame:
         return self._image_annotated
 
 
-def _get_output_dir() -> str:
-    if os.path.ismount(EXT_MOUNT):
-        dir = os.path.join(EXT_MOUNT, settings.OUTPUT_DIR)
-    else:
-        dir = settings.OUTPUT_DIR
-        logger.warning(
-            f"HDD not mounted at {EXT_MOUNT}, falling back to SD card output dir"
-        )
-    os.makedirs(dir, exist_ok=True)
-    return dir
-
-
 def _release_writers(
     wtr: Optional[FFmpegWriter],
     wtr_r: Optional[FFmpegWriter],
@@ -532,12 +520,8 @@ def processing_thread():
                         video_start_timestamp = frame_recording.timestamp
                         video_hashes.clear()
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
-                            out_path = os.path.join(
-                                _get_output_dir(),
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}.tmp.mp4",
-                            )
                             writer = FFmpegWriter(
-                                out_path,
+                                frame_recording.timestamp.strftime("%Y%m%d_%H%M%S"),
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
@@ -545,15 +529,11 @@ def processing_thread():
                                 raw=False,
                             )
                             logger.warning(
-                                f"({frame_recording.hash}) Starting recording: {out_path}"
+                                f"({frame_recording.hash}) Starting recording: {writer.output_path}"
                             )
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
-                            out_raw_path = os.path.join(
-                                _get_output_dir(),
-                                f"{frame_recording.timestamp.strftime('%Y%m%d_%H%M%S')}_raw.tmp.mp4",
-                            )
                             writer_raw = FFmpegWriter(
-                                out_raw_path,
+                                frame_recording.timestamp.strftime("%Y%m%d_%H%M%S"),
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
@@ -561,7 +541,7 @@ def processing_thread():
                                 raw=True,
                             )
                             logger.warning(
-                                f"({frame_recording.hash}) Starting raw recording: {out_raw_path}"
+                                f"({frame_recording.hash}) Starting raw recording: {writer_raw.output_path}"
                             )
                         video_path = (writer if writer else writer_raw).output_path
                         video_name = os.path.basename(video_path.replace(".tmp.", "."))

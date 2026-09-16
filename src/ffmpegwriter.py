@@ -1,4 +1,5 @@
 import logging
+import os
 import queue
 import subprocess
 import threading
@@ -17,15 +18,17 @@ class FFmpegWriter:
 
     def __init__(
         self,
-        path: str,
+        init_timestamp: str,
         fps: float,
         width: int,
         height: int,
         quality: int,
         raw: bool = False,
     ):
-        self.output_path = path
+        self.init_timestamp = init_timestamp
         self._raw = raw
+        filename = f"{self.init_timestamp}{'_raw' if self._raw else ''}.tmp.mp4"
+        self.output_path = os.path.join(utils.get_output_dir(), filename)
         self._queue: queue.Queue = queue.Queue(maxsize=25)
         set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         self._check_queue_empty()
@@ -52,7 +55,7 @@ class FFmpegWriter:
             "faststart",
             "-pix_fmt",
             "yuv420p",
-            path,
+            self.output_path,
         ]
         self._proc = subprocess.Popen(
             cmd,
@@ -61,7 +64,7 @@ class FFmpegWriter:
             stderr=subprocess.DEVNULL,
         )
         if self._proc.poll() is not None:
-            raise RuntimeError(f"ffmpeg failed to start for {path}")
+            raise RuntimeError(f"ffmpeg failed to start for {self.output_path}")
         self._thread = threading.Thread(target=self._writer_loop, daemon=True)
         self._thread.start()
 

@@ -10,7 +10,7 @@ from capture import capture_thread
 from config import settings
 from ffmpegwriter import FFmpegWriter
 from monitoring import monitoring_thread
-from processing import _get_output_dir, _release_writers
+from processing import Frame, _release_writers
 from shared import frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ def raw_recording_thread() -> None:
     logger.info("Raw recording thread started")
 
     writer: FFmpegWriter | None = None
+    prev_frame: Frame | None = None
     rotation_deadline = time.monotonic() + _ROTATION_SECONDS
     while not shutdown_event.is_set() or not frame_queue.empty():
         try:
@@ -30,14 +31,20 @@ def raw_recording_thread() -> None:
         except queue.Empty:
             continue
 
+        frame = Frame(
+            timestamp=timestamp,
+            image=image,
+            prev_frame=prev_frame,
+            prev_track_mask=image[:, :, 0] * 0,
+            forced_detection_run=False,
+        )
+        prev_frame = frame
+
         now_mono = time.monotonic()
         if writer is None or now_mono >= rotation_deadline:
             _, _ = _release_writers(None, writer, log_msg="raw test rotation")
             writer = FFmpegWriter(
-                path=os.path.join(
-                    _get_output_dir(),
-                    f"{timestamp.strftime('%Y%m%d_%H%M%S')}_raw_test.tmp.mp4",
-                ),
+                init_timestamp=timestamp.strftime("%Y%m%d_%H%M%S"),
                 fps=settings.FPS,
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,
@@ -47,8 +54,7 @@ def raw_recording_thread() -> None:
             rotation_deadline = now_mono + _ROTATION_SECONDS
             logger.warning(f"Starting raw test recording: {writer.output_path}")
 
-        frame_hash = timestamp.strftime("%Y%m%d_%H%M%S_%f")
-        writer.write(image, frame_hash)
+        writer.write(frame.image, frame.hash)
 
     _, _ = _release_writers(None, writer, log_msg="raw test shutdown")
     logger.info("Raw recording thread stopped")
