@@ -226,7 +226,8 @@ def expand_bbox_from_bounds(
 def entropy_weights(probs: np.ndarray) -> np.ndarray:
     """Calculate weights based on probability entropy"""
     ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1)), axis=1)
-    return np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
+    wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
+    return np.ones_like(wgt) if wgt.sum() == 0 else wgt
 
 
 _TRACK_SUMMARIES_FILE = "track_summaries.jsonl"
