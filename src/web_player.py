@@ -1,4 +1,3 @@
-import argparse
 import json
 import logging
 import os
@@ -36,6 +35,8 @@ logging.getLogger("werkzeug").setLevel(settings.LOG_LEVEL)
 INT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / settings.OUTPUT_DIR
 EXT_OUTPUT_DIR = Path(EXT_MOUNT) / settings.OUTPUT_DIR
 logger = logging.getLogger(__name__)
+WEB_PLAYER_HOST = "127.0.0.1"
+WEB_PLAYER_PORT = 5000
 
 
 def parse_dt(s):
@@ -105,9 +106,7 @@ def serve_video(filename):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=5001)
-    parser.add_argument("--host", default="0.0.0.0")
-    args = parser.parse_args()
-    logger.info(f"Starting web player on {args.host}:{args.port}")
-    app.run(host=args.host, port=args.port, debug=False)
+    logger.info(
+        f"Starting web player on {WEB_PLAYER_HOST}:{WEB_PLAYER_PORT} behind tailscale serve"
+    )
+    app.run(host=WEB_PLAYER_HOST, port=WEB_PLAYER_PORT, debug=False)

@@ -117,6 +117,14 @@ WantedBy=timers.target
 1. Verify: `systemctl list-timers startup.timer startup-stop.timer`
 1. To manually start outside the window: `sudo systemctl start startup.service`
 
+## Tailscale access
+Use Tailscale Serve to expose the automatically started web player to your tailnet.
+
+1. Install Tailscale and join the Pi to your tailnet by following the official Linux guide: [Tailscale docs](https://tailscale.com/download/linux)
+1. If the installer does not start Tailscale automatically, enable it: `sudo systemctl enable --now tailscaled`
+1. Configure Serve for the local web player port: `sudo tailscale serve --bg 5000`
+1. Check the published URL and current mapping: `tailscale serve status`
+
 ## Cloud sync script
 1. [Install rclone](https://rclone.org/install/#script-installation)
 1. Run `rclone config` and get credentials [info](https://console.cloud.google.com/auth/clients?project=rpi-cat-behaviour-monitor) to complete
