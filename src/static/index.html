@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cat Behavior Tracking - Track Browser</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Track Browser</h1>
+        </header>
+
+        <div class="content">
+            <div class="panel tracks-panel">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Cat ID</label>
+                        <select id="filterCatId" class="filter-select">
+                            <option value="">All Cats</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Track Time After</label>
+                        <input type="datetime-local" id="filterTrackTimeAfter" class="filter-input">
+                    </div>
+                    <div class="filter-group">
+                        <label>Track Time Before</label>
+                        <input type="datetime-local" id="filterTrackTimeBefore" class="filter-input">
+                    </div>
+                </div>
+
+                <table id="tracksTable" class="tracks-table">
+                    <thead>
+                        <tr class="header-row">
+                            <th class="sortable" data-field="video_name">Video</th>
+                            <th class="sortable" data-field="cat_id">Cat</th>
+                            <th class="sortable" data-field="video_timestamp_start_s">Start (s)</th>
+                            <th class="sortable" data-field="video_timestamp_end_s">End (s)</th>
+                            <th class="sortable" data-field="track_start_timestamp">Track Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tracksBody"></tbody>
+                </table>
+            </div>
+
+            <div class="panel player-panel">
+                <video id="videoPlayer" controls>
+                    <p>HTML5 video not supported</p>
+                </video>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

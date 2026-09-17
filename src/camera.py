@@ -12,11 +12,15 @@ logger = logging.getLogger(__name__)
 
 
 class Cv2_camera:
-    def __init__(self):
+    def __init__(self, video_path: Optional[str] = None):
         # initialise camera object
-        video_path = random.choice(utils.get_video_paths(raw_video=False))
-        logger.info(f"Using Cv2_camera with mock video: {video_path}")
-        self.cam = cv2.VideoCapture(video_path)
+        self.video_path = (
+            random.choice(utils.get_video_paths(raw_video=False))
+            if video_path is None
+            else video_path
+        )
+        logger.info(f"Using Cv2_camera with mock video: {self.video_path}")
+        self.cam = cv2.VideoCapture(self.video_path)
 
         # check resolution set correctly
         width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -47,7 +51,7 @@ class Cv2_camera:
                 logger.info(
                     f"Buffering last frame ({self._buffer_count}/{self._buffer_frames})"
                 )
-                return self._last_frame
+                return np.clip(self._last_frame - self._buffer_count, 0, 255)
             else:
                 logger.info("Buffer period expired, returning None")
                 return None
@@ -99,10 +103,12 @@ class Picamera2_camera:
         return frame
 
 
-def get_camera() -> Union[Cv2_camera, Picamera2_camera]:
+def get_camera(
+    mock_video_path: Optional[str] = None,
+) -> Union[Cv2_camera, Picamera2_camera]:
     match SYSTEM:
         case "Darwin":
-            return Cv2_camera()
+            return Cv2_camera(mock_video_path)
         case "Linux":
             return Picamera2_camera()
         case _:

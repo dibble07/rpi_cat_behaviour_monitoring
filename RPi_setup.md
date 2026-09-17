@@ -41,7 +41,9 @@ git fetch origin
 git checkout test
 git reset --hard origin/test
 /home/rpdibble/.local/bin/uv sync --no-dev
-.venv/bin/python src/app.py
+.venv/bin/python src/app.py &
+.venv/bin/python src/web_player.py &
+wait -n
 ```
 1. Make it executable: `sudo chmod +x /home/rpdibble/rpi_cat_behaviour_monitoring.sh`
 1. Create a systemd service file: `/etc/systemd/system/startup.service`
@@ -114,6 +116,14 @@ WantedBy=timers.target
 1. Reload manager, enable timers, disable direct boot start: `sudo systemctl daemon-reload` and `sudo systemctl enable --now startup.timer startup-stop.timer` and `sudo systemctl disable startup.service`
 1. Verify: `systemctl list-timers startup.timer startup-stop.timer`
 1. To manually start outside the window: `sudo systemctl start startup.service`
+
+## Tailscale access
+Use Tailscale Serve to expose the automatically started web player to your tailnet.
+
+1. Install Tailscale and join the Pi to your tailnet by following the official Linux guide: [Tailscale docs](https://tailscale.com/download/linux)
+1. If the installer does not start Tailscale automatically, enable it: `sudo systemctl enable --now tailscaled`
+1. Configure Serve for the local web player port: `sudo tailscale serve --bg 5000`
+1. Check the published URL and current mapping: `tailscale serve status`
 
 ## Cloud sync script
 1. [Install rclone](https://rclone.org/install/#script-installation)

@@ -149,6 +149,10 @@ Recorded clips are annotated include the following overlays:
 - Bounding box around the current object position if detected
 - Label banner: ```<track_id> <cat name/object type>```
 
+## Web Interface
+
+The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity and search within specific date ranges, then replay annotated video clips.
+
 ## File Structure
 
 ### Root Level & Configuration
@@ -180,6 +184,9 @@ Recorded clips are annotated include the following overlays:
 | [src/ffmpegwriter.py](src/ffmpegwriter.py) | Video writer wrapper for encoded clip output |
 | [src/yolo_ncnn.py](src/yolo_ncnn.py) | YOLO inference via NCNN directly instead of PyTorch |
 | [src/utils.py](src/utils.py) | Utility functions |
+| [src/raw_capture.py](src/raw_capture.py) | Minimal app for recording raw test video to mock inputs |
+| [src/web_player.py](src/web_player.py) | Flask web server serving web player interface and video playback |
+| [src/static/](src/static/) | Web player static files |
 
 ### Datasets
 
