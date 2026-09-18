@@ -1,9 +1,12 @@
-let sort = { by: 'track_start_timestamp', dir: 'desc' };
+let sort = { by: 'track_start_dt_tm', dir: 'desc' };
 const cat = document.getElementById('filterCatId');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
 const tbody = document.getElementById('tracksBody');
 const video = document.getElementById('videoPlayer');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const overlayCtx = overlayCanvas.getContext('2d');
+let annotationData = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     cat.addEventListener('change', update);
@@ -16,6 +19,11 @@ document.addEventListener('DOMContentLoaded', () => {
             update();
         });
     });
+    video.addEventListener('loadedmetadata', () => {
+        overlayCanvas.width = video.videoWidth;
+        overlayCanvas.height = video.videoHeight;
+    });
+    startOverlayLoop();
     setInterval(update, 5000);
     update();
 });
@@ -44,13 +52,17 @@ async function update() {
     tbody.innerHTML = '';
     tracks.forEach(t => {
         const row = tbody.insertRow();
-        row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.video_timestamp_start_s.toFixed(1)}</td><td>${t.video_timestamp_end_s.toFixed(1)}</td><td>${new Date(t.track_start_timestamp).toLocaleString()}</td>`;
+        row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.track_elapsed_start_s.toFixed(1)}</td><td>${t.track_elapsed_end_s.toFixed(1)}</td><td>${new Date(t.track_start_dt_tm).toLocaleString()}</td>`;
         row.onclick = () => {
             document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active'));
             row.classList.add('active');
             video.src = `/video/${t.video_name}`;
-            video.currentTime = t.video_timestamp_start_s;
+            video.currentTime = t.track_elapsed_start_s;
             video.play();
+            annotationData = null;
+            fetch(`/api/tracks/${t.manager_id}/${t.track_id}/annotations`)
+                .then(r => r.json())
+                .then(d => { annotationData = d; });
         };
     });
     
@@ -59,3 +71,77 @@ async function update() {
         if (th.dataset.field === sort.by) th.textContent += ` ${sort.dir === 'asc' ? '↑' : '↓'}`;
     });
 }
+
+function toPixel([xc, yc, w, h]) {
+    const cw = overlayCanvas.width, ch = overlayCanvas.height;
+    return {
+        x1: (xc - w / 2) * cw,
+        y1: (yc - h / 2) * ch,
+        x2: (xc + w / 2) * cw,
+        y2: (yc + h / 2) * ch,
+        cx: xc * cw,
+        cy: yc * ch,
+    };
+}
+
+function drawOverlay(currentTime) {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    if (!annotationData || !annotationData.fps) return;
+
+    const { fps, history_duration_s, frames, colour } = annotationData;
+    const index = Math.round(currentTime * fps);
+    const historyFrames = Math.round(history_duration_s * fps);
+    const strokeColour = `rgb(${colour.join(',')})`;
+    const dim = Math.min(overlayCanvas.width, overlayCanvas.height);
+    const trailThickness = dim / 500;
+    const boxThickness = dim / 250;
+
+    // history trail
+    overlayCtx.strokeStyle = strokeColour;
+    overlayCtx.fillStyle = strokeColour;
+    overlayCtx.lineWidth = trailThickness;
+    let prevPoint = null;
+    for (let i = Math.max(0, index - historyFrames); i <= index; i++) {
+        const bbox = frames[i];
+        if (!bbox) {
+            prevPoint = null;
+            continue;
+        }
+        const { cx, cy } = toPixel(bbox);
+        overlayCtx.beginPath();
+        overlayCtx.arc(cx, cy, trailThickness * 2, 0, 2 * Math.PI);
+        overlayCtx.fill();
+        if (prevPoint) {
+            overlayCtx.beginPath();
+            overlayCtx.moveTo(prevPoint.cx, prevPoint.cy);
+            overlayCtx.lineTo(cx, cy);
+            overlayCtx.stroke();
+        }
+        prevPoint = { cx, cy };
+    }
+
+    // current bounding box
+    const currentBbox = frames[index];
+    if (currentBbox) {
+        const { x1, y1, x2, y2 } = toPixel(currentBbox);
+        overlayCtx.lineWidth = boxThickness;
+        overlayCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    }
+}
+
+function startOverlayLoop() {
+    if (video.requestVideoFrameCallback) {
+        const cb = (now, metadata) => {
+            drawOverlay(metadata.mediaTime);
+            video.requestVideoFrameCallback(cb);
+        };
+        video.requestVideoFrameCallback(cb);
+    } else {
+        const raf = () => {
+            drawOverlay(video.currentTime);
+            requestAnimationFrame(raf);
+        };
+        raf();
+    }
+}
+

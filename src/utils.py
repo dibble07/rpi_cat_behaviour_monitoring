@@ -1,13 +1,10 @@
 import logging
-import os
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
 import numpy as np
-
-from config import EXT_MOUNT, settings
 
 logger = logging.getLogger(__name__)
 
@@ -228,18 +225,3 @@ def entropy_weights(probs: np.ndarray) -> np.ndarray:
     ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1)), axis=1)
     wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
     return np.ones_like(wgt) if wgt.sum() == 0 else wgt
-
-
-_TRACK_SUMMARIES_FILE = "track_summaries.jsonl"
-
-
-def get_output_dir() -> str:
-    if os.path.ismount(EXT_MOUNT):
-        dir = os.path.join(EXT_MOUNT, settings.OUTPUT_DIR)
-    else:
-        dir = settings.OUTPUT_DIR
-        logger.warning(
-            f"HDD not mounted at {EXT_MOUNT}, falling back to SD card output dir"
-        )
-    os.makedirs(dir, exist_ok=True)
-    return dir

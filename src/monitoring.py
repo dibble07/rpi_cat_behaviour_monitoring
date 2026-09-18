@@ -10,7 +10,6 @@ from config import EXT_MOUNT, INT_MOUNT, SYSTEM, settings
 from shared import (
     frame_queue,
     recording_queue_size,
-    recording_raw_queue_size,
     shutdown_event,
 )
 
@@ -49,7 +48,7 @@ def monitoring_thread() -> None:
     psutil.cpu_percent(percpu=True)
     process.cpu_percent()
     prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = 0
-    prev_q_len = prev_recording_q_len = prev_raw_recording_q_len = 0
+    prev_q_len = prev_recording_q_len = 0
     prev_int_write_bytes = _init_counters[int_dev].write_bytes if int_dev else None
     prev_ext_write_bytes = _init_counters[ext_dev].write_bytes if ext_dev else None
     swap = psutil.swap_memory()
@@ -95,9 +94,6 @@ def monitoring_thread() -> None:
         recording_q_len = recording_queue_size
         recording_q_delta = recording_q_len - prev_recording_q_len
         prev_recording_q_len = recording_q_len
-        raw_recording_q_len = recording_raw_queue_size
-        raw_recording_q_delta = raw_recording_q_len - prev_raw_recording_q_len
-        prev_raw_recording_q_len = raw_recording_q_len
 
         # disk write rate
         _counters = psutil.disk_io_counters(perdisk=True)
@@ -132,7 +128,6 @@ def monitoring_thread() -> None:
             or (SYSTEM == "Linux" and temp_c >= 70)
             or frame_q_len >= 5
             or recording_q_len >= 5
-            or raw_recording_q_len >= 5
             or (int_dev is not None and int_write_mb_s >= 0.75 * 30)
             or (ext_dev is not None and ext_write_mb_s >= 0.75 * 70)
         )
@@ -147,7 +142,6 @@ def monitoring_thread() -> None:
             f"swap_out_mbps: {swap_out_mb_s:.1f}",
             f"frame_queue_size: {frame_q_len} ({frame_q_delta:+d})",
             f"recording_queue_size: {recording_q_len} ({recording_q_delta:+d})",
-            f"raw_recording_queue_size: {raw_recording_q_len} ({raw_recording_q_delta:+d})",
         ]
         if int_dev:
             lines.append(f"int_write_mbps: {int_write_mb_s:.0f}")
