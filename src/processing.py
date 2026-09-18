@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 import utils
-from config import settings
+from config import TIMESTAMP_FORMAT, settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
@@ -510,7 +510,7 @@ def processing_thread():
                         # init recordings
                         if settings.SAVE_RAW_VIDEO in {"no", "both"}:
                             writer = FFmpegWriter(
-                                frame_recording.timestamp.strftime("%Y%m%d_%H%M%S"),
+                                frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,
@@ -522,7 +522,7 @@ def processing_thread():
                             )
                         if settings.SAVE_RAW_VIDEO in {"only", "both"}:
                             writer_raw = FFmpegWriter(
-                                frame_recording.timestamp.strftime("%Y%m%d_%H%M%S"),
+                                frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
                                 settings.FPS,
                                 settings.FRAME_WIDTH,
                                 settings.FRAME_HEIGHT,

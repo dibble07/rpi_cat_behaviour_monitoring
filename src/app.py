@@ -1,12 +1,7 @@
 import faulthandler
 import logging
-import os
-from datetime import datetime
 
-from config import settings
-
-# prepare output directory
-os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+from config import APP_LOG_PATH, settings
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -14,13 +9,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(
-            os.path.join(
-                settings.OUTPUT_DIR,
-                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_logs.txt",
-            ),
-            "a",
-        ),
+        logging.FileHandler(APP_LOG_PATH, "a"),
     ],
 )
 

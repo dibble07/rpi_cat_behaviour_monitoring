@@ -8,6 +8,7 @@ from datetime import datetime
 import numpy as np
 
 import utils
+from config import OUTPUT_DIR
 from shared import set_recording_queue_size
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class FFmpegWriter:
         self.init_timestamp = init_timestamp
         self._raw = raw
         filename = f"{self.init_timestamp}{'_raw' if self._raw else ''}.tmp.mp4"
-        self.output_path = os.path.join(utils.get_output_dir(), filename)
+        self.output_path = os.path.join(OUTPUT_DIR, filename)
         self._queue: queue.Queue = queue.Queue(maxsize=25)
         set_recording_queue_size(self._queue.qsize(), raw=self._raw)
         self._check_queue_empty()

@@ -8,9 +8,13 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 sys.path.insert(0, os.path.dirname(__file__))
-from config import EXT_MOUNT, settings
-
-os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+from config import (
+    EXT_OUTPUT_DIR,
+    INT_OUTPUT_DIR,
+    TRACK_SUMMARIES_PATH,
+    WEB_PLAYER_LOG_PATH,
+    settings,
+)
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -18,13 +22,7 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(
-            os.path.join(
-                settings.OUTPUT_DIR,
-                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_web_player_logs.txt",
-            ),
-            "a",
-        ),
+        logging.FileHandler(WEB_PLAYER_LOG_PATH, "a"),
     ],
 )
 
@@ -32,8 +30,6 @@ app = Flask(__name__, static_folder=None)
 app.logger.setLevel(settings.LOG_LEVEL)
 logging.getLogger("werkzeug").setLevel(settings.LOG_LEVEL)
 
-INT_OUTPUT_DIR = Path(__file__).resolve().parent.parent / settings.OUTPUT_DIR
-EXT_OUTPUT_DIR = Path(EXT_MOUNT) / settings.OUTPUT_DIR
 logger = logging.getLogger(__name__)
 WEB_PLAYER_HOST = "127.0.0.1"
 WEB_PLAYER_PORT = 5000
@@ -72,7 +68,7 @@ def app_js():
 
 @app.route("/api/tracks")
 def get_tracks():
-    lines = (INT_OUTPUT_DIR / "track_summaries.jsonl").read_text().strip().split("\n")
+    lines = Path(TRACK_SUMMARIES_PATH).read_text().strip().split("\n")
     tracks = [json.loads(line) for line in lines if line]
 
     cat = request.args.get("filter_cat_id", "")
