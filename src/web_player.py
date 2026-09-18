@@ -1,10 +1,9 @@
-import json
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
 from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -32,10 +31,6 @@ logging.getLogger("werkzeug").setLevel(settings.LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
 HOST, PORT = "127.0.0.1", 5000
-
-
-def parse_dt(s):
-    return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
 
 
 def get_video_file_path(filename):
@@ -67,29 +62,25 @@ def app_js():
 
 @app.route("/api/tracks")
 def get_tracks():
-    lines = Path(TRACK_SUMMARIES_PATH).read_text().strip().split("\n")
-    tracks = [json.loads(line) for line in lines if line]
+    df = pd.read_json(TRACK_SUMMARIES_PATH, lines=True)
+    df["track_start_dt_tm"] = pd.to_datetime(df["track_start_dt_tm"]).dt.tz_localize(
+        None
+    )
 
-    cat = request.args.get("filter_cat_id", "")
-    if cat:
-        tracks = [t for t in tracks if t.get("cat_id") == cat]
+    if cat := request.args.get("filter_cat_id", ""):
+        df = df.loc[df.get("cat_id") == cat]
 
-    after = request.args.get("filter_track_time_after", "")
-    if after:
-        after_dt = parse_dt(after)
-        tracks = [t for t in tracks if parse_dt(t["track_start_timestamp"]) >= after_dt]
+    if after := request.args.get("filter_track_time_after", ""):
+        df = df.loc[df["track_start_dt_tm"] >= pd.Timestamp(after).tz_localize(None)]
 
-    before = request.args.get("filter_track_time_before", "")
-    if before:
-        before_dt = parse_dt(before)
-        tracks = [
-            t for t in tracks if parse_dt(t["track_start_timestamp"]) <= before_dt
-        ]
+    if before := request.args.get("filter_track_time_before", ""):
+        df = df.loc[df["track_start_dt_tm"] <= pd.Timestamp(before).tz_localize(None)]
 
-    sort_by = request.args.get("sort_by", "track_start_timestamp")
+    sort_by = request.args.get("sort_by", "track_start_dt_tm")
     reverse = request.args.get("sort_dir", "desc") == "desc"
-    tracks.sort(key=lambda t: t.get(sort_by, ""), reverse=reverse)
-    return jsonify(tracks)
+    df = df.sort_values(by=sort_by, ascending=not reverse)
+    df["track_start_dt_tm"] = df["track_start_dt_tm"].apply(lambda ts: ts.isoformat())
+    return jsonify(df.to_dict(orient="records"))
 
 
 @app.route("/video/<filename>")
