@@ -46,9 +46,12 @@
             </div>
 
             <div class="panel player-panel">
-                <video id="videoPlayer" controls>
-                    <p>HTML5 video not supported</p>
-                </video>
+                <div class="video-wrapper">
+                    <video id="videoPlayer" controls>
+                        <p>HTML5 video not supported</p>
+                    </video>
+                    <canvas id="overlayCanvas"></canvas>
+                </div>
             </div>
         </div>
     </div>

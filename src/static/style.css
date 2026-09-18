@@ -13,6 +13,8 @@ h1{font-size:20px}
 
 .filter-input,.filter-select{padding:6px 8px;border:1px solid #bbb;border-radius:2px;font-size:13px;min-width:150px}
 video{width:100%;background:#000;max-height:100%}
+.video-wrapper{position:relative;width:100%}
+#overlayCanvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
 .tracks-table{width:100%;border-collapse:collapse;font-size:13px}
 .tracks-table thead{background:#f8f8f8;position:sticky;top:0;z-index:10}
 .header-row th{padding:8px;text-align:left;font-weight:600;border-bottom:1px solid #ddd;cursor:pointer;user-select:none}
