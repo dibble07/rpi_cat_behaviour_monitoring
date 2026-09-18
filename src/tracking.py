@@ -43,7 +43,7 @@ class VideoHashMap:
         if video_name not in self._videos:
             self._videos[video_name] = {
                 "initial_timestamp": datetime.strptime(
-                    writer.init_timestamp, "%Y%m%d_%H%M%S"
+                    writer.init_timestamp, TIMESTAMP_FORMAT
                 ),
                 "hashes": [],
             }

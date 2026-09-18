@@ -5,7 +5,7 @@ import threading
 import time
 
 from capture import capture_thread
-from config import RAW_LOG_PATH, settings
+from config import RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
 from ffmpegwriter import FFmpegWriter
 from monitoring import monitoring_thread
 from processing import Frame, _release_writers
@@ -42,7 +42,7 @@ def raw_recording_thread() -> None:
         if writer is None or now_mono >= rotation_deadline:
             _, _ = _release_writers(None, writer, log_msg="raw test rotation")
             writer = FFmpegWriter(
-                init_timestamp=timestamp.strftime("%Y%m%d_%H%M%S"),
+                init_timestamp=timestamp.strftime(TIMESTAMP_FORMAT),
                 fps=settings.FPS,
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,
