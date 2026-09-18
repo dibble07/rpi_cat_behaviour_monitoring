@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import queue
@@ -13,7 +14,7 @@ import cv2
 import numpy as np
 
 import utils
-from config import TIMESTAMP_FORMAT, settings
+from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
 from ffmpegwriter import FFmpegWriter
 from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
@@ -367,12 +368,14 @@ class Frame:
 def _release_writers(
     wtr: Optional[FFmpegWriter],
     wtr_r: Optional[FFmpegWriter],
+    video_hash_map: VideoHashMap = None,
     frame_hash: Optional[str] = None,
     log_msg: str = "",
 ) -> tuple[None, None]:
     """Release video writers if not None, with optional logging."""
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
+
     if wtr is not None:
         wtr.release()
         final_path = wtr.output_path.replace(".tmp.", ".")
@@ -383,6 +386,15 @@ def _release_writers(
         final_path = wtr_r.output_path.replace(".tmp.", ".")
         os.rename(wtr_r.output_path, final_path)
         logger.warning(f"{hash_msg}Saving raw recording{log_msg}: {final_path}")
+
+    # video_name matches the one recorded against track_summaries.jsonl rows for this recording
+    if video_hash_map:
+        video_name = os.path.basename((wtr or wtr_r).output_path.replace(".tmp.", "."))
+        hashes = video_hash_map.get_hashes(video_name)
+        with open(os.path.join(METADATA_DIR, f"video-{video_name}.json"), "w") as f:
+            json.dump(hashes, f, indent=4)
+    else:
+        logger.warning(f"No video hash map available for saving video metadata.")
 
     return None, None
 
@@ -571,7 +583,11 @@ def processing_thread():
                     elif not recording_tracks_valid:
                         log_msg = "all tracks expired"
                     writer, writer_raw = _release_writers(
-                        writer, writer_raw, frame_recording.hash, log_msg
+                        writer,
+                        writer_raw,
+                        video_hash_map,
+                        frame_recording.hash,
+                        log_msg,
                     )
 
                     if not track_manager.non_expired_tracks:
@@ -616,6 +632,7 @@ def processing_thread():
         logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
         processing_buffer.clear()
     track_manager.remove_tracks("all", video_hash_map=video_hash_map)
-    writer, writer_raw = _release_writers(writer, writer_raw)
+    if writer or writer_raw:
+        writer, writer_raw = _release_writers(writer, writer_raw, video_hash_map)
 
     logger.info("Processing thread stopped")
