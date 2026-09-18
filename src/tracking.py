@@ -17,7 +17,7 @@ from scipy.optimize import linear_sum_assignment
 
 import classification
 import utils
-from config import SYSTEM, settings
+from config import SYSTEM, TRACK_SUMMARIES_PATH, settings
 from ffmpegwriter import FFmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -488,8 +488,7 @@ class TrackManager:
                 ).isoformat(),  # type: ignore[attr-defined]
             }
 
-            output_path = os.path.join(settings.OUTPUT_DIR, utils._TRACK_SUMMARIES_FILE)
-            with open(output_path, "a") as f:
+            with open(TRACK_SUMMARIES_PATH, "a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
         else:
             logger.warning(

@@ -1,13 +1,11 @@
 import faulthandler
 import logging
-import os
 import queue
 import threading
 import time
-from datetime import datetime
 
 from capture import capture_thread
-from config import settings
+from config import RAW_LOG_PATH, settings
 from ffmpegwriter import FFmpegWriter
 from monitoring import monitoring_thread
 from processing import Frame, _release_writers
@@ -60,21 +58,13 @@ def raw_recording_thread() -> None:
     logger.info("Raw recording thread stopped")
 
 
-os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
-
 logging.basicConfig(
     level=settings.LOG_LEVEL,
     format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(
-            os.path.join(
-                settings.OUTPUT_DIR,
-                f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_raw_logs.txt",
-            ),
-            "a",
-        ),
+        logging.FileHandler(RAW_LOG_PATH, "a"),
     ],
 )
 
