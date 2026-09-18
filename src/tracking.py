@@ -17,7 +17,13 @@ from scipy.optimize import linear_sum_assignment
 
 import classification
 import utils
-from config import SYSTEM, TIMESTAMP_FORMAT, TRACK_SUMMARIES_PATH, settings
+from config import (
+    METADATA_DIR,
+    SYSTEM,
+    TIMESTAMP_FORMAT,
+    TRACK_SUMMARIES_PATH,
+    settings,
+)
 from ffmpegwriter import FFmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -58,6 +64,9 @@ class VideoHashMap:
                     "video_hash_index": video["hashes"].index(frame_hash),  # type: ignore[attr-defined]
                 }
         raise KeyError(f"Frame hash not found in video map: {frame_hash}")
+
+    def get_hashes(self, video_name: str) -> list[str]:
+        return self._videos[video_name]["hashes"]  # type: ignore[return-value]
 
 
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
@@ -485,14 +494,23 @@ class TrackManager:
                 "track_elapsed_start_s": start_offset_s,
                 "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
+                "object_name": track.summary.last_valid_frame.object_name,
                 "track_start_dt_tm": (
                     start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
-                ).isoformat(),  # type: ignore[attr-defined]
+                ).isoformat(  # type: ignore[attr-defined]
+                    timespec="microseconds"
+                ),  # type: ignore[attr-defined]
             }
 
             with open(TRACK_SUMMARIES_PATH, "a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
+
+            # export per-frame bbox coords to a track-specific file
+            bbox_coords = {f.frame_hash: f.bbox.cxcywhn for f in track._frames if f}
+            track_filename = f"track-{self.manager_id}-{track.track_id}.json"
+            with open(os.path.join(METADATA_DIR, track_filename), "w") as f:
+                json.dump(bbox_coords, f, indent=4)
         else:
             logger.warning(
                 f"Track {track.track_id} could not be exported because its frames are not in the video hash map."
