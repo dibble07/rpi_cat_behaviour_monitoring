@@ -31,8 +31,7 @@ app.logger.setLevel(settings.LOG_LEVEL)
 logging.getLogger("werkzeug").setLevel(settings.LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
-WEB_PLAYER_HOST = "127.0.0.1"
-WEB_PLAYER_PORT = 5000
+HOST, PORT = "127.0.0.1", 5000
 
 
 def parse_dt(s):
@@ -102,7 +101,5 @@ def serve_video(filename):
 
 
 if __name__ == "__main__":
-    logger.info(
-        f"Starting web player on {WEB_PLAYER_HOST}:{WEB_PLAYER_PORT} behind tailscale serve"
-    )
-    app.run(host=WEB_PLAYER_HOST, port=WEB_PLAYER_PORT, debug=False)
+    logger.info(f"Starting web player on {HOST}:{PORT} behind tailscale serve")
+    app.run(host=HOST, port=PORT, debug=False)
