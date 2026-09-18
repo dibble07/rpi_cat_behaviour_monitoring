@@ -1,4 +1,4 @@
-let sort = { by: 'track_start_timestamp', dir: 'desc' };
+let sort = { by: 'track_start_dt_tm', dir: 'desc' };
 const cat = document.getElementById('filterCatId');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
@@ -44,12 +44,12 @@ async function update() {
     tbody.innerHTML = '';
     tracks.forEach(t => {
         const row = tbody.insertRow();
-        row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.video_timestamp_start_s.toFixed(1)}</td><td>${t.video_timestamp_end_s.toFixed(1)}</td><td>${new Date(t.track_start_timestamp).toLocaleString()}</td>`;
+        row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.track_elapsed_start_s.toFixed(1)}</td><td>${t.track_elapsed_end_s.toFixed(1)}</td><td>${new Date(t.track_start_dt_tm).toLocaleString()}</td>`;
         row.onclick = () => {
             document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active'));
             row.classList.add('active');
             video.src = `/video/${t.video_name}`;
-            video.currentTime = t.video_timestamp_start_s;
+            video.currentTime = t.track_elapsed_start_s;
             video.play();
         };
     });

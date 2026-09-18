@@ -42,7 +42,7 @@ class VideoHashMap:
         video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         if video_name not in self._videos:
             self._videos[video_name] = {
-                "initial_timestamp": datetime.strptime(
+                "initial_dt_tm": datetime.strptime(
                     writer.init_timestamp, TIMESTAMP_FORMAT
                 ),
                 "hashes": [],
@@ -54,7 +54,7 @@ class VideoHashMap:
             if frame_hash in video["hashes"]:  # type: ignore[operator]
                 return {
                     "video_name": video_name,
-                    "video_start_timestamp": video["initial_timestamp"],
+                    "video_start_dt_tm": video["initial_dt_tm"],
                     "video_hash_index": video["hashes"].index(frame_hash),  # type: ignore[attr-defined]
                 }
         raise KeyError(f"Frame hash not found in video map: {frame_hash}")
@@ -482,11 +482,11 @@ class TrackManager:
                 "manager_id": self.manager_id,
                 "track_id": track.track_id,
                 "video_name": start_match["video_name"],
-                "video_timestamp_start_s": start_offset_s,
-                "video_timestamp_end_s": end_offset_s,
+                "track_elapsed_start_s": start_offset_s,
+                "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
-                "track_start_timestamp": (
-                    start_match["video_start_timestamp"]  # type: ignore[operator]
+                "track_start_dt_tm": (
+                    start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
                 ).isoformat(),  # type: ignore[attr-defined]
             }
