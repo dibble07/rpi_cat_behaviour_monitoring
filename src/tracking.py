@@ -38,13 +38,11 @@ class VideoHashMap:
 
     def append(
         self,
-        wtr: Optional[FFmpegWriter],
-        wtr_r: Optional[FFmpegWriter],
+        writer: FFmpegWriter,
         frame_hash: str,
     ) -> None:
         if frame_hash in self:
             raise ValueError(f"Duplicate frame hash in video map: {frame_hash}")
-        writer = wtr or wtr_r
         video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         if video_name not in self._videos:
             self._videos[video_name] = {

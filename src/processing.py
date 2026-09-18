@@ -22,9 +22,6 @@ from yolo_ncnn import YOLO_NCNN
 
 logger = logging.getLogger(__name__)
 
-# annotation font
-FONT = cv2.FONT_HERSHEY_SIMPLEX
-
 # load object detection model
 MODEL = YOLO_NCNN(Path("models") / settings.MODEL_DETECTION_PATH)
 _ = MODEL(
@@ -46,7 +43,7 @@ _GREY_H = 480
 
 
 class Frame:
-    """Store frame image and timestamp as well as supplementary processing and annotations"""
+    """Store frame image, timestamp, and supplementary processing state"""
 
     def __init__(
         self,
@@ -258,145 +255,32 @@ class Frame:
     ) -> None:
         self._recording_track_summaries = recording_track_summaries
 
-    @property
-    def image_annotated(self) -> np.ndarray:
-        if not hasattr(self, "_image_annotated"):
-
-            # start timing
-            start = datetime.now()
-            logger.debug(f"({self.hash}) Annotating image")
-
-            # copy image ready to be annotated
-            self._image_annotated = self.image.copy()
-
-            # draw frame hash label in top-left corner
-            (txt_w, txt_h), txt_baseline = cv2.getTextSize(self.hash, FONT, 1, 1)
-            box_bot_right = (int(txt_w * 1.1), int(txt_h * 1.2 + txt_baseline))
-            cv2.rectangle(self._image_annotated, (0, 0), box_bot_right, (0, 0, 0), -1)
-            cv2.putText(
-                self._image_annotated,
-                self.hash,
-                (int(txt_w * 0.05), int(txt_h * 1.1 + txt_baseline)),
-                FONT,
-                1,
-                (255, 255, 255),
-            )
-
-            # annotate using track summaries
-            r_summaries_map = {
-                s.track_id: s.state for s in self.recording_track_summaries
-            }
-            for summary in sorted(
-                [
-                    s
-                    for s in self.processing_track_summaries
-                    if r_summaries_map[s.track_id]
-                    in [TrackState.ACTIVE, TrackState.STALE]
-                ],
-                key=lambda s: (s.state, s.track_id),
-                reverse=True,
-            ):
-                track_frame = summary.last_valid_frame
-
-                # unpack box coords
-                x1, y1, x2, y2 = track_frame.bbox.xyxy
-                ann_colour = utils.CAT_COLOUR_MAP.get(
-                    summary.cat_name, utils.OBJECT_COLOUR_MAP[track_frame.object_name]
-                )
-
-                # draw track history
-                thickness = int(min(self._image_annotated.shape[:2]) / 500)
-                previous_point = None
-                for point in summary.history:
-                    if point is not None:
-                        cv2.circle(
-                            self._image_annotated,
-                            point,
-                            thickness * 2,
-                            ann_colour,
-                            -1,
-                        )
-                        if previous_point is not None:
-                            cv2.line(
-                                self._image_annotated,
-                                previous_point,
-                                point,
-                                ann_colour,
-                                thickness,
-                            )
-                    previous_point = point
-
-                # draw bounding box if current frame is valid
-                if summary.latest_detection_index == summary.frame_count - 1:
-
-                    # draw bounding box
-                    thickness = int(min(self._image_annotated.shape[:2]) / 250)
-                    cv2.rectangle(
-                        self._image_annotated, (x1, y1), (x2, y2), ann_colour, thickness
-                    )
-
-                    # extract object/cat label, confidence, and text size
-                    label = f"{summary.track_id} {summary.cat_name or track_frame.object_name}"
-                    (w, h), baseline = cv2.getTextSize(label, FONT, 1, 1)
-
-                    # draw background rectangle for text
-                    cv2.rectangle(
-                        self._image_annotated,
-                        (x1, y1 - (h + baseline)),
-                        (x1 + w, y1),
-                        ann_colour,
-                        -1,
-                    )
-
-                    # add text
-                    txt_coords = (x1, y1 - baseline)
-                    cv2.putText(
-                        self._image_annotated,
-                        label,
-                        txt_coords,
-                        FONT,
-                        1,
-                        (255, 255, 255),
-                    )
-
-            # log annotation duration
-            utils.log_timing(logger, "Image annotation", start, self.hash)
-
-        return self._image_annotated
-
 
 def _release_writers(
-    wtr: Optional[FFmpegWriter],
-    wtr_r: Optional[FFmpegWriter],
+    writer: FFmpegWriter,
     video_hash_map: VideoHashMap = None,
     frame_hash: Optional[str] = None,
     log_msg: str = "",
-) -> tuple[None, None]:
-    """Release video writers if not None, with optional logging."""
+) -> Optional[FFmpegWriter]:
+    """Release the video writer, with optional logging."""
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
 
-    if wtr is not None:
-        wtr.release()
-        final_path = wtr.output_path.replace(".tmp.", ".")
-        os.rename(wtr.output_path, final_path)
-        logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
-    if wtr_r is not None:
-        wtr_r.release()
-        final_path = wtr_r.output_path.replace(".tmp.", ".")
-        os.rename(wtr_r.output_path, final_path)
-        logger.warning(f"{hash_msg}Saving raw recording{log_msg}: {final_path}")
+    writer.release()
+    final_path = writer.output_path.replace(".tmp.", ".")
+    os.rename(writer.output_path, final_path)
+    logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
 
     # video_name matches the one recorded against track_summaries.jsonl rows for this recording
     if video_hash_map:
-        video_name = os.path.basename((wtr or wtr_r).output_path.replace(".tmp.", "."))
+        video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         hashes = video_hash_map.get_hashes(video_name)
         with open(os.path.join(METADATA_DIR, f"video-{video_name}.json"), "w") as f:
             json.dump(hashes, f, indent=4)
     else:
         logger.warning(f"No video hash map available for saving video metadata.")
 
-    return None, None
+    return None
 
 
 def processing_thread():
@@ -413,7 +297,6 @@ def processing_thread():
     # initialise state and previous frame
     recording = False
     writer = None
-    writer_raw = None
     prev_frame = None
     frames_since_detection = 0
     track_manager = TrackManager()
@@ -519,40 +402,22 @@ def processing_thread():
                     # initialise recording and write pre buffer to video file
                     if not recording:
 
-                        # init recordings
-                        if settings.SAVE_RAW_VIDEO in {"no", "both"}:
-                            writer = FFmpegWriter(
-                                frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
-                                settings.FPS,
-                                settings.FRAME_WIDTH,
-                                settings.FRAME_HEIGHT,
-                                settings.VIDEO_QUALITY,
-                                raw=False,
-                            )
-                            logger.warning(
-                                f"({frame_recording.hash}) Starting recording: {writer.output_path}"
-                            )
-                        if settings.SAVE_RAW_VIDEO in {"only", "both"}:
-                            writer_raw = FFmpegWriter(
-                                frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
-                                settings.FPS,
-                                settings.FRAME_WIDTH,
-                                settings.FRAME_HEIGHT,
-                                settings.VIDEO_QUALITY,
-                                raw=True,
-                            )
-                            logger.warning(
-                                f"({frame_recording.hash}) Starting raw recording: {writer_raw.output_path}"
-                            )
+                        writer = FFmpegWriter(
+                            frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
+                            settings.FPS,
+                            settings.FRAME_WIDTH,
+                            settings.FRAME_HEIGHT,
+                            settings.VIDEO_QUALITY,
+                        )
+                        logger.warning(
+                            f"({frame_recording.hash}) Starting recording: {writer.output_path}"
+                        )
                         # flush buffer
                         pre_buffer_len = len(pre_buffer)
                         while pre_buffer:
                             bf = pre_buffer.popleft()
-                            video_hash_map.append(writer, writer_raw, bf.hash)
-                            if writer is not None:
-                                writer.write(bf.image_annotated, bf.hash)
-                            if writer_raw is not None:
-                                writer_raw.write(bf.image, bf.hash)
+                            video_hash_map.append(writer, bf.hash)
+                            writer.write(bf.image, bf.hash)
                         logger.info(
                             f"({frame_recording.hash}) Written {pre_buffer_len} frames from pre detection buffer"
                         )
@@ -560,17 +425,12 @@ def processing_thread():
                         recording = True
 
             if recording:
+                assert writer is not None
 
                 # write current frame and assess post buffer termination
                 if not has_excluded_object:
-                    _ = frame_recording.image_annotated
-                    video_hash_map.append(writer, writer_raw, frame_recording.hash)
-                    if writer is not None:
-                        writer.write(
-                            frame_recording.image_annotated, frame_recording.hash
-                        )
-                    if writer_raw is not None:
-                        writer_raw.write(frame_recording.image, frame_recording.hash)
+                    video_hash_map.append(writer, frame_recording.hash)
+                    writer.write(frame_recording.image, frame_recording.hash)
 
                 # stop recording close video file
                 recording_tracks_valid = any(
@@ -582,9 +442,8 @@ def processing_thread():
                         log_msg = "excluded object detected"
                     elif not recording_tracks_valid:
                         log_msg = "all tracks expired"
-                    writer, writer_raw = _release_writers(
+                    writer = _release_writers(
                         writer,
-                        writer_raw,
                         video_hash_map,
                         frame_recording.hash,
                         log_msg,
@@ -632,7 +491,7 @@ def processing_thread():
         logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
         processing_buffer.clear()
     track_manager.remove_tracks("all", video_hash_map=video_hash_map)
-    if writer or writer_raw:
-        writer, writer_raw = _release_writers(writer, writer_raw, video_hash_map)
+    if writer:
+        writer = _release_writers(writer, video_hash_map)
 
     logger.info("Processing thread stopped")

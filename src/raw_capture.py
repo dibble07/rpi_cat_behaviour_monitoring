@@ -40,21 +40,22 @@ def raw_recording_thread() -> None:
 
         now_mono = time.monotonic()
         if writer is None or now_mono >= rotation_deadline:
-            _, _ = _release_writers(None, writer, log_msg="raw test rotation")
+            if writer is not None:
+                writer = _release_writers(writer, log_msg="raw test rotation")
             writer = FFmpegWriter(
                 init_timestamp=timestamp.strftime(TIMESTAMP_FORMAT),
                 fps=settings.FPS,
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,
                 quality=settings.VIDEO_QUALITY,
-                raw=True,
             )
             rotation_deadline = now_mono + _ROTATION_SECONDS
             logger.warning(f"Starting raw test recording: {writer.output_path}")
 
         writer.write(frame.image, frame.hash)
 
-    _, _ = _release_writers(None, writer, log_msg="raw test shutdown")
+    if writer is not None:
+        writer = _release_writers(writer, log_msg="raw test shutdown")
     logger.info("Raw recording thread stopped")
 
 
