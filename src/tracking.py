@@ -17,7 +17,7 @@ from scipy.optimize import linear_sum_assignment
 
 import classification
 import utils
-from config import SYSTEM, TRACK_SUMMARIES_PATH, settings
+from config import SYSTEM, TIMESTAMP_FORMAT, TRACK_SUMMARIES_PATH, settings
 from ffmpegwriter import FFmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -461,6 +461,7 @@ class TrackManager:
     """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
+        self.manager_id = datetime.now().strftime(TIMESTAMP_FORMAT)
         self.tracks: list[Track] = []
         self._next_track_id = 1
 
@@ -478,6 +479,8 @@ class TrackManager:
             start_offset_s = start_match["video_hash_index"] / settings.FPS
             end_offset_s = end_match["video_hash_index"] / settings.FPS
             row = {
+                "manager_id": self.manager_id,
+                "track_id": track.track_id,
                 "video_name": start_match["video_name"],
                 "video_timestamp_start_s": start_offset_s,
                 "video_timestamp_end_s": end_offset_s,
