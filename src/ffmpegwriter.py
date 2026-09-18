@@ -24,14 +24,12 @@ class FFmpegWriter:
         width: int,
         height: int,
         quality: int,
-        raw: bool = False,
     ):
         self.init_timestamp = init_timestamp
-        self._raw = raw
-        filename = f"{self.init_timestamp}{'_raw' if self._raw else ''}.tmp.mp4"
+        filename = f"{self.init_timestamp}.tmp.mp4"
         self.output_path = os.path.join(OUTPUT_DIR, filename)
         self._queue: queue.Queue = queue.Queue(maxsize=25)
-        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
+        set_recording_queue_size(self._queue.qsize())
         self._check_queue_empty()
         cmd = [
             "ffmpeg",
@@ -79,7 +77,7 @@ class FFmpegWriter:
     def _writer_loop(self) -> None:
         while True:
             item = self._queue.get()
-            set_recording_queue_size(self._queue.qsize(), raw=self._raw)
+            set_recording_queue_size(self._queue.qsize())
             if item is None:
                 break
 
@@ -92,14 +90,14 @@ class FFmpegWriter:
     def write(self, frame: np.ndarray, frame_hash: str) -> None:
         start = datetime.now()
         self._queue.put((start, frame_hash, frame))
-        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
+        set_recording_queue_size(self._queue.qsize())
         utils.log_timing(logger, "FFmpeg enqueue", start, frame_hash)
 
     def release(self) -> None:
         self._queue.put(None)
-        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
+        set_recording_queue_size(self._queue.qsize())
         self._thread.join()
         self._proc.stdin.close()
         self._proc.wait()
-        set_recording_queue_size(self._queue.qsize(), raw=self._raw)
+        set_recording_queue_size(self._queue.qsize())
         self._check_queue_empty()

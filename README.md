@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records annotated video clips with tracking information (IDs, confidence scores, bounding boxes, cat labels). The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
+A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records video clips and stores tracking metadata for dynamic playback annotations. The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
 
 ## Demo
 
@@ -68,7 +68,7 @@ flowchart TD
 
 #### Tracking State Machine
 
-Tracks move between various states based on the age and confidence of recent detections. These states determine the initialisation and termination of recording as well as annotation of the video.
+Tracks move between various states based on the age and confidence of recent detections. These states determine the initialisation and termination of recording.
 
 | State | Description |
 |-------|-------|
@@ -88,7 +88,7 @@ stateDiagram-v2
 
 #### Cat Classification
 
-After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting cat label is used in video annotation, so confirmed cat Tracks are displayed with identity-aware labels rather than only object class labels.
+After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
 
 #### Recording
 
@@ -100,7 +100,6 @@ The exported video relies on a few different components and conditions:
 - When a track transitions to Active state
     1. Video recording begins
     1. Pre-buffer frames are flushed to disk (provides context before detection)
-    1. Frames are annotated with: track ID, state, frame count, confidence
 - While Active tracks exist
     - Frames written continuously if active tracks or are of permitted class
     - Active tracks of excluded class will terminate recording and clear buffers
@@ -143,15 +142,11 @@ flowchart TD
     N --> H
 ```
 
-Recorded clips are annotated include the following overlays:
-- Frame hash
-- Per-track lines showing recent history of object lcoation
-- Bounding box around the current object position if detected
-- Label banner: ```<track_id> <cat name/object type>```
+Recorded clips contain the original camera frames. The track browser renders bounding boxes, identity-aware labels, and recent track-history trails dynamically from the recording metadata.
 
 ## Web Interface
 
-The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity and search within specific date ranges, then replay annotated video clips.
+The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity and search within specific date ranges, then replay clips with dynamically rendered annotations.
 
 ## File Structure
 
