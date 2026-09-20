@@ -17,7 +17,13 @@ from scipy.optimize import linear_sum_assignment
 
 import classification
 import utils
-from config import SYSTEM, settings
+from config import (
+    METADATA_DIR,
+    SYSTEM,
+    TIMESTAMP_FORMAT,
+    TRACK_SUMMARIES_PATH,
+    settings,
+)
 from ffmpegwriter import FFmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -32,18 +38,16 @@ class VideoHashMap:
 
     def append(
         self,
-        wtr: Optional[FFmpegWriter],
-        wtr_r: Optional[FFmpegWriter],
+        writer: FFmpegWriter,
         frame_hash: str,
     ) -> None:
         if frame_hash in self:
             raise ValueError(f"Duplicate frame hash in video map: {frame_hash}")
-        writer = wtr or wtr_r
         video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         if video_name not in self._videos:
             self._videos[video_name] = {
-                "initial_timestamp": datetime.strptime(
-                    writer.init_timestamp, "%Y%m%d_%H%M%S"
+                "initial_dt_tm": datetime.strptime(
+                    writer.init_timestamp, TIMESTAMP_FORMAT
                 ),
                 "hashes": [],
             }
@@ -54,10 +58,13 @@ class VideoHashMap:
             if frame_hash in video["hashes"]:  # type: ignore[operator]
                 return {
                     "video_name": video_name,
-                    "video_start_timestamp": video["initial_timestamp"],
+                    "video_start_dt_tm": video["initial_dt_tm"],
                     "video_hash_index": video["hashes"].index(frame_hash),  # type: ignore[attr-defined]
                 }
         raise KeyError(f"Frame hash not found in video map: {frame_hash}")
+
+    def get_hashes(self, video_name: str) -> list[str]:
+        return self._videos[video_name]["hashes"]  # type: ignore[return-value]
 
 
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
@@ -461,6 +468,7 @@ class TrackManager:
     """Hungarian multi-object track assignment."""
 
     def __init__(self) -> None:
+        self.manager_id = datetime.now().strftime(TIMESTAMP_FORMAT)
         self.tracks: list[Track] = []
         self._next_track_id = 1
 
@@ -478,19 +486,29 @@ class TrackManager:
             start_offset_s = start_match["video_hash_index"] / settings.FPS
             end_offset_s = end_match["video_hash_index"] / settings.FPS
             row = {
+                "manager_id": self.manager_id,
+                "track_id": track.track_id,
                 "video_name": start_match["video_name"],
-                "video_timestamp_start_s": start_offset_s,
-                "video_timestamp_end_s": end_offset_s,
+                "track_elapsed_start_s": start_offset_s,
+                "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
-                "track_start_timestamp": (
-                    start_match["video_start_timestamp"]  # type: ignore[operator]
+                "object_name": track.summary.last_valid_frame.object_name,
+                "track_start_dt_tm": (
+                    start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
-                ).isoformat(),  # type: ignore[attr-defined]
+                ).isoformat(  # type: ignore[attr-defined]
+                    timespec="microseconds"
+                ),  # type: ignore[attr-defined]
             }
 
-            output_path = os.path.join(settings.OUTPUT_DIR, utils._TRACK_SUMMARIES_FILE)
-            with open(output_path, "a") as f:
+            with open(TRACK_SUMMARIES_PATH, "a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
+
+            # export per-frame bbox coords to a track-specific file
+            bbox_coords = {f.frame_hash: f.bbox.cxcywhn for f in track._frames if f}
+            track_filename = f"track-{self.manager_id}-{track.track_id}.json"
+            with open(os.path.join(METADATA_DIR, track_filename), "w") as f:
+                json.dump(bbox_coords, f, indent=4)
         else:
             logger.warning(
                 f"Track {track.track_id} could not be exported because its frames are not in the video hash map."

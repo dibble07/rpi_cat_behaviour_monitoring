@@ -36,9 +36,9 @@
                         <tr class="header-row">
                             <th class="sortable" data-field="video_name">Video</th>
                             <th class="sortable" data-field="cat_id">Cat</th>
-                            <th class="sortable" data-field="video_timestamp_start_s">Start (s)</th>
-                            <th class="sortable" data-field="video_timestamp_end_s">End (s)</th>
-                            <th class="sortable" data-field="track_start_timestamp">Track Time</th>
+                            <th class="sortable" data-field="track_elapsed_start_s">Start (s)</th>
+                            <th class="sortable" data-field="track_elapsed_end_s">End (s)</th>
+                            <th class="sortable" data-field="track_start_dt_tm">Track Time</th>
                         </tr>
                     </thead>
                     <tbody id="tracksBody"></tbody>
@@ -46,9 +46,12 @@
             </div>
 
             <div class="panel player-panel">
-                <video id="videoPlayer" controls>
-                    <p>HTML5 video not supported</p>
-                </video>
+                <div class="video-wrapper">
+                    <video id="videoPlayer" controls playsinline webkit-playsinline>
+                        <p>HTML5 video not supported</p>
+                    </video>
+                    <canvas id="overlayCanvas"></canvas>
+                </div>
             </div>
         </div>
     </div>
