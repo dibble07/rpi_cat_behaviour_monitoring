@@ -55,6 +55,36 @@ def get_video_fps(video_path: str) -> float:
     return fps
 
 
+class TrackSummaryStore:
+    """Caches parsed track summaries and only re-reads lines appended since the last load."""
+
+    def __init__(self) -> None:
+        self._df = pd.DataFrame()
+        self._mtime = 0.0
+        self._offset = 0
+
+    def get(self) -> pd.DataFrame:
+        mtime = os.path.getmtime(TRACK_SUMMARIES_PATH)
+        if mtime == self._mtime:
+            return self._df
+
+        with open(TRACK_SUMMARIES_PATH) as f:
+            f.seek(self._offset)
+            new_df = pd.read_json(f, lines=True, dtype={"manager_id": str})
+            self._offset = f.tell()
+
+        if not new_df.empty:
+            new_df["track_start_dt_tm"] = pd.to_datetime(
+                new_df["track_start_dt_tm"]
+            ).dt.tz_localize(None)
+            self._df = pd.concat([self._df, new_df], ignore_index=True)
+
+        self._mtime = mtime
+        return self._df
+
+
+track_summary_store = TrackSummaryStore()
+
 assets = Path(__file__).parent / "static"
 
 
@@ -75,10 +105,7 @@ def app_js():
 
 @app.route("/api/tracks")
 def get_tracks():
-    df = pd.read_json(TRACK_SUMMARIES_PATH, lines=True, dtype={"manager_id": str})
-    df["track_start_dt_tm"] = pd.to_datetime(df["track_start_dt_tm"]).dt.tz_localize(
-        None
-    )
+    df = track_summary_store.get()
 
     if cat := request.args.get("filter_cat_id", ""):
         df = df.loc[df.get("cat_id") == cat]
@@ -107,7 +134,7 @@ def serve_video(filename):
 @app.route("/api/tracks/<manager_id>/<int:track_id>/annotations")
 def get_track_annotations(manager_id, track_id):
     # load track info
-    df = pd.read_json(TRACK_SUMMARIES_PATH, lines=True, dtype={"manager_id": str})
+    df = track_summary_store.get()
     matches = df[(df["manager_id"] == manager_id) & (df["track_id"] == track_id)]
     if len(matches) != 1:
         abort(404)
