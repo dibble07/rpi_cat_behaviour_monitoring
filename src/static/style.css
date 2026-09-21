@@ -20,6 +20,7 @@ video{width:100%;background:#000;max-height:100%}
 .header-row th{padding:8px;text-align:left;font-weight:600;border-bottom:1px solid #ddd;cursor:pointer;user-select:none}
 .tracks-table tbody tr{border-bottom:1px solid #eee;cursor:pointer}
 .tracks-table tbody tr.active{background:#e3f2fd}
+.tracks-table tbody tr.not-ready{background:#fdecea;color:#b71c1c}
 .tracks-table td{padding:8px;word-break:break-word}
 
 @media (max-width: 1024px) {

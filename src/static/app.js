@@ -53,6 +53,7 @@ async function update() {
     tracks.forEach(t => {
         const row = tbody.insertRow();
         row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.track_elapsed_start_s.toFixed(1)}</td><td>${t.track_elapsed_end_s.toFixed(1)}</td><td>${new Date(t.track_start_dt_tm).toLocaleString()}</td>`;
+        if (!t.files_ready) row.classList.add('not-ready');
         row.onclick = () => {
             document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active'));
             row.classList.add('active');

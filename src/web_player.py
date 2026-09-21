@@ -64,6 +64,13 @@ class TrackSummaryStore:
         self._offset = 0
 
     def get(self) -> pd.DataFrame:
+        if not self._df.empty:
+            pending = ~self._df["files_ready"]
+            if pending.any():
+                self._df.loc[pending, "files_ready"] = self._df.loc[pending].apply(
+                    self._files_ready, axis=1
+                )
+
         mtime = os.path.getmtime(TRACK_SUMMARIES_PATH)
         if mtime == self._mtime:
             return self._df
@@ -77,10 +84,26 @@ class TrackSummaryStore:
             new_df["track_start_dt_tm"] = pd.to_datetime(
                 new_df["track_start_dt_tm"]
             ).dt.tz_localize(None)
+            new_df["files_ready"] = new_df.apply(self._files_ready, axis=1)
             self._df = pd.concat([self._df, new_df], ignore_index=True)
 
         self._mtime = mtime
         return self._df
+
+    @staticmethod
+    def _files_ready(row: pd.Series) -> bool:
+        """Check all required files are present"""
+        hashes_path = Path(METADATA_DIR) / f"video-{row['video_name']}.json"
+        bbox_path = (
+            Path(METADATA_DIR) / f"track-{row['manager_id']}-{row['track_id']}.json"
+        )
+        return all(
+            [
+                get_video_file_path(row["video_name"]) is not None,
+                hashes_path.exists(),
+                bbox_path.exists(),
+            ]
+        )
 
 
 track_summary_store = TrackSummaryStore()
