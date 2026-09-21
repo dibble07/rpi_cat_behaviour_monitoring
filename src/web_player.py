@@ -139,6 +139,7 @@ def get_tracks():
     if before := request.args.get("filter_track_time_before", ""):
         df = df.loc[df["track_start_dt_tm"] <= pd.Timestamp(before).tz_localize(None)]
 
+    df["duration_s"] = df["track_elapsed_end_s"] - df["track_elapsed_start_s"]
     sort_by = request.args.get("sort_by", "track_start_dt_tm")
     reverse = request.args.get("sort_dir", "desc") == "desc"
     df = df.sort_values(by=sort_by, ascending=not reverse)
