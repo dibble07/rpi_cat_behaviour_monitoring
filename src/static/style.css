@@ -3,7 +3,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f5f5f5;color:#33
 .container{height:100vh;display:flex;flex-direction:column}
 header{padding:15px 20px;background:white;border-bottom:1px solid #ddd;flex-shrink:0}
 h1{font-size:20px}
-.content{display:flex;gap:10px;padding:10px;flex:1;overflow:hidden}
+.content{display:flex;gap:10px;padding:10px;flex:1;min-height:0;overflow:hidden}
 .panel{background:white;border-radius:3px;display:flex;flex-direction:column;min-height:0}
 .tracks-panel{flex:1 1 40%;min-width:0;overflow:auto}
 .player-panel{flex:1 1 60%;min-width:0}
@@ -12,9 +12,13 @@ h1{font-size:20px}
 .filter-group label{font-size:11px;font-weight:600;color:#666;text-transform:uppercase}
 
 .filter-input,.filter-select{padding:6px 8px;border:1px solid #bbb;border-radius:2px;font-size:13px;min-width:150px}
-video{width:100%;background:#000;max-height:100%}
-.video-wrapper{position:relative;width:100%}
+video{display:block;width:100%;height:100%;background:#000;object-fit:contain}
+.video-wrapper{position:relative;width:100%;aspect-ratio:16 / 9;flex:0 1 auto;min-height:0;background:#000}
 #overlayCanvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.player-metadata{display:flex;gap:16px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid #ddd;flex-shrink:0;font-size:12px}
+.metadata-item{display:flex;min-width:0;gap:6px;align-items:baseline}
+.metadata-label{font-weight:600;color:#666}
+.metadata-value{min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .tracks-table{width:100%;border-collapse:collapse;font-size:13px}
 .tracks-table thead{background:#f8f8f8;position:sticky;top:0;z-index:10}
 .header-row th{padding:8px;text-align:left;font-weight:600;border-bottom:1px solid #ddd;cursor:pointer;user-select:none}
@@ -23,7 +27,16 @@ video{width:100%;background:#000;max-height:100%}
 .tracks-table tbody tr.not-ready{background:#fdecea;color:#b71c1c}
 .tracks-table td{padding:8px;word-break:break-word}
 
-@media (max-width: 1024px) {
+@media (max-width: 1024px) and (orientation: portrait), (max-width: 767px) {
 	.content{flex-direction:column;overflow:auto}
-	.tracks-panel,.player-panel{flex:1 1 auto}
+	.tracks-panel{flex:0 1 auto;max-height:45vh}
+	.player-panel{flex:0 0 auto}
+	.video-wrapper{flex:none}
+	video{height:auto;max-height:none;aspect-ratio:16 / 9}
+	.player-metadata{gap:8px 16px}
+}
+
+@media (max-width: 480px) {
+	.player-metadata{flex-direction:column}
+	.metadata-value{max-width:none}
 }
