@@ -4,8 +4,12 @@ const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
 const tbody = document.getElementById('tracksBody');
 const video = document.getElementById('videoPlayer');
+const videoWrapper = document.querySelector('.video-wrapper');
 const overlayCanvas = document.getElementById('overlayCanvas');
 const overlayCtx = overlayCanvas.getContext('2d');
+const metadataVideoName = document.getElementById('metadataVideoName');
+const metadataTrackStart = document.getElementById('metadataTrackStart');
+const metadataTrackStop = document.getElementById('metadataTrackStop');
 let annotationData = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     video.addEventListener('loadedmetadata', () => {
         overlayCanvas.width = video.videoWidth;
         overlayCanvas.height = video.videoHeight;
+        videoWrapper.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
     });
     startOverlayLoop();
     setInterval(update, 5000);
@@ -52,10 +57,14 @@ async function update() {
     tbody.innerHTML = '';
     tracks.forEach(t => {
         const row = tbody.insertRow();
-        row.innerHTML = `<td>${t.video_name}</td><td>${t.cat_id}</td><td>${t.track_elapsed_start_s.toFixed(1)}</td><td>${t.track_elapsed_end_s.toFixed(1)}</td><td>${new Date(t.track_start_dt_tm).toLocaleString()}</td>`;
+        row.innerHTML = `<td>${new Date(t.track_start_dt_tm).toLocaleString()}</td><td>${t.cat_id}</td><td>${formatDuration(t.duration_s)}</td>`;
+        if (!t.files_ready) row.classList.add('not-ready');
         row.onclick = () => {
             document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active'));
             row.classList.add('active');
+            metadataVideoName.textContent = t.video_name;
+            metadataTrackStart.textContent = formatTrackTime(t.track_elapsed_start_s);
+            metadataTrackStop.textContent = formatTrackTime(t.track_elapsed_end_s);
             video.src = `/video/${t.video_name}`;
             video.currentTime = t.track_elapsed_start_s;
             video.play();
@@ -70,6 +79,21 @@ async function update() {
         th.textContent = th.textContent.replace(/\s[↑↓]$/, '');
         if (th.dataset.field === sort.by) th.textContent += ` ${sort.dir === 'asc' ? '↑' : '↓'}`;
     });
+}
+
+function formatDuration(seconds) {
+    const totalSeconds = Math.floor(seconds);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+    return [hours, minutes, remainingSeconds]
+        .map(value => String(value).padStart(2, '0'))
+        .join(':');
+}
+
+function formatTrackTime(seconds) {
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '\u2014';
+    return formatDuration(seconds);
 }
 
 function toPixel([xc, yc, w, h]) {

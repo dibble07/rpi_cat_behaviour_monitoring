@@ -34,11 +34,9 @@
                 <table id="tracksTable" class="tracks-table">
                     <thead>
                         <tr class="header-row">
-                            <th class="sortable" data-field="video_name">Video</th>
-                            <th class="sortable" data-field="cat_id">Cat</th>
-                            <th class="sortable" data-field="track_elapsed_start_s">Start (s)</th>
-                            <th class="sortable" data-field="track_elapsed_end_s">End (s)</th>
-                            <th class="sortable" data-field="track_start_dt_tm">Track Time</th>
+                            <th class="sortable" data-field="track_start_dt_tm">Timestamp</th>
+                            <th class="sortable" data-field="cat_id">Name</th>
+                            <th class="sortable" data-field="duration_s">Duration</th>
                         </tr>
                     </thead>
                     <tbody id="tracksBody"></tbody>
@@ -51,6 +49,20 @@
                         <p>HTML5 video not supported</p>
                     </video>
                     <canvas id="overlayCanvas"></canvas>
+                </div>
+                <div class="player-metadata" aria-live="polite">
+                    <div class="metadata-item">
+                        <span class="metadata-label">Video</span>
+                        <span id="metadataVideoName" class="metadata-value">&mdash;</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Start</span>
+                        <span id="metadataTrackStart" class="metadata-value">&mdash;</span>
+                    </div>
+                    <div class="metadata-item">
+                        <span class="metadata-label">Stop</span>
+                        <span id="metadataTrackStop" class="metadata-value">&mdash;</span>
+                    </div>
                 </div>
             </div>
         </div>
