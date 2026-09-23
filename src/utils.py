@@ -1,5 +1,4 @@
 import logging
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -50,17 +49,6 @@ def log_timing(
     frame_hash_str = f"({frame_hash}) " if frame_hash else ""
     logger.log(level, f"{frame_hash_str}{task} duration: {elapsed_sec * 1000:.1f} ms")
     return elapsed_sec
-
-
-# Map annotation colours based on object or cat name
-OBJECT_COLOUR_MAP = {
-    "person": (0, 0, 255),  # red
-    "cat": (0, 192, 0),  # green
-}
-CAT_COLOUR_MAP = {
-    "fluffy": (255, 0, 0),  # blue
-    "tabby": (0, 165, 255),  # orange
-}
 
 
 class Bbox:

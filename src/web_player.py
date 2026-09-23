@@ -11,14 +11,15 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
+    CAT_COLOUR_MAP,
     EXT_OUTPUT_DIR,
     INT_OUTPUT_DIR,
     METADATA_DIR,
+    OBJECT_COLOUR_MAP,
     TRACK_SUMMARIES_PATH,
     WEB_PLAYER_LOG_PATH,
     settings,
 )
-from utils import CAT_COLOUR_MAP, OBJECT_COLOUR_MAP
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
