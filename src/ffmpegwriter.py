@@ -14,7 +14,7 @@ from shared import set_recording_queue_size
 logger = logging.getLogger(__name__)
 
 
-class FFmpegWriter:
+class FfmpegWriter:
     """Drop-in replacement for cv2.VideoWriter using ffmpeg H.264 encoding."""
 
     def __init__(

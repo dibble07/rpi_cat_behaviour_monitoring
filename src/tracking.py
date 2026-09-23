@@ -24,7 +24,7 @@ from config import (
     TRACK_SUMMARIES_PATH,
     settings,
 )
-from ffmpegwriter import FFmpegWriter
+from ffmpegwriter import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class VideoHashMap:
 
     def append(
         self,
-        writer: FFmpegWriter,
+        writer: FfmpegWriter,
         frame_hash: str,
     ) -> None:
         if frame_hash in self:

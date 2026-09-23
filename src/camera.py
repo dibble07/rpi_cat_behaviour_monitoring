@@ -11,7 +11,7 @@ from config import SYSTEM, settings
 logger = logging.getLogger(__name__)
 
 
-class Cv2_camera:
+class Cv2Camera:
     def __init__(self, video_path: Optional[str] = None):
         # initialise camera object
         self.video_path = (
@@ -19,7 +19,7 @@ class Cv2_camera:
             if video_path is None
             else video_path
         )
-        logger.info(f"Using Cv2_camera with mock video: {self.video_path}")
+        logger.info(f"Using Cv2Camera with mock video: {self.video_path}")
         self.cam = cv2.VideoCapture(self.video_path)
 
         # check resolution set correctly
@@ -68,7 +68,7 @@ class Cv2_camera:
         return frame
 
 
-class Picamera2_camera:
+class Picamera2Camera:
     def __init__(self):
         # import raspberry pi specific library
         from picamera2 import Picamera2
@@ -105,11 +105,11 @@ class Picamera2_camera:
 
 def get_camera(
     mock_video_path: Optional[str] = None,
-) -> Union[Cv2_camera, Picamera2_camera]:
+) -> Union[Cv2Camera, Picamera2Camera]:
     match SYSTEM:
         case "Darwin":
-            return Cv2_camera(mock_video_path)
+            return Cv2Camera(mock_video_path)
         case "Linux":
-            return Picamera2_camera()
+            return Picamera2Camera()
         case _:
             raise ValueError(f"Unexpected system: {SYSTEM}")

@@ -15,16 +15,16 @@ import numpy as np
 
 import utils
 from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
-from ffmpegwriter import FFmpegWriter
+from ffmpegwriter import FfmpegWriter
 from shared import frame_queue, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
-from yolo_ncnn import YOLO_NCNN
+from yolo_ncnn import YoloNcnn
 
 logger = logging.getLogger(__name__)
 
 # load object detection model
-MODEL = YOLO_NCNN(Path("models") / settings.MODEL_DETECTION_PATH)
-_ = MODEL(
+_model = YoloNcnn(Path("models") / settings.MODEL_DETECTION_PATH)
+_ = _model(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=tuple(settings.DETECTION_IMGSZ),
     conf=settings.CONF,
@@ -33,7 +33,7 @@ _ = MODEL(
 )
 
 # define background subtractor
-BACK_SUB = cv2.createBackgroundSubtractorMOG2(
+_back_sub = cv2.createBackgroundSubtractorMOG2(
     history=settings.BACKGROUND_HISTORY, detectShadows=False
 )
 
@@ -87,7 +87,7 @@ class Frame:
         _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
 
         # get mask of foreground from background removal model
-        fore_mask = BACK_SUB.apply(self.image_grey_blur)
+        fore_mask = _back_sub.apply(self.image_grey_blur)
 
         # combine change and foreground masks
         motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
@@ -192,7 +192,7 @@ class Frame:
                 )
 
             # run model inference
-            results = MODEL(
+            results = _model(
                 image,
                 imgsz=tuple(settings.DETECTION_IMGSZ),
                 conf=settings.CONF,
@@ -203,7 +203,7 @@ class Frame:
             # process detections
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                object_name = MODEL.names[int(r.cls[0].item())]
+                object_name = _model.names[int(r.cls[0].item())]
                 frame_wh = (self.image.shape[1], self.image.shape[0])
                 track_frames.append(
                     TrackFrame(
@@ -257,11 +257,11 @@ class Frame:
 
 
 def _release_writers(
-    writer: FFmpegWriter,
+    writer: FfmpegWriter,
     video_hash_map: VideoHashMap = None,
     frame_hash: Optional[str] = None,
     log_msg: str = "",
-) -> Optional[FFmpegWriter]:
+) -> Optional[FfmpegWriter]:
     """Release the video writer, with optional logging."""
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
@@ -402,7 +402,7 @@ def processing_thread():
                     # initialise recording and write pre buffer to video file
                     if not recording:
 
-                        writer = FFmpegWriter(
+                        writer = FfmpegWriter(
                             frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
                             settings.FPS,
                             settings.FRAME_WIDTH,

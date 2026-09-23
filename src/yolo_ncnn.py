@@ -37,7 +37,7 @@ class _Box:
         self.cls = _Tensor([cls])
 
 
-class YOLO_NCNN:
+class YoloNcnn:
 
     def __init__(
         self,
