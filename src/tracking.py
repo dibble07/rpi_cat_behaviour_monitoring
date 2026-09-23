@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import List, Optional
 
 import cv2
+import joblib
 import numpy as np
 import onnxruntime as ort
 from filterpy.kalman import KalmanFilter
 from scipy.optimize import linear_sum_assignment
 
-import classification
 import utils
 from config import (
     METADATA_DIR,
@@ -27,6 +27,28 @@ from config import (
 from ffmpegwriter import FfmpegWriter
 
 logger = logging.getLogger(__name__)
+
+
+_model = joblib.load(Path("models") / "classification_best_model.joblib")
+
+
+def classify_embedding(embedding: np.ndarray) -> dict:
+    """Classify an embedding and return the cat name and confidence"""
+    embedding = np.asarray(embedding, dtype=np.float32)
+
+    # reshape to 2D if needed
+    if embedding.ndim == 1:
+        embedding = embedding.reshape(1, -1)
+
+    # get probabilities and index
+    proba = _model.predict_proba(embedding)[0]
+    cat_id = int(np.argmax(proba))
+
+    return {
+        "cat_name": _model.classes_[cat_id],
+        "confidence": float(proba[cat_id]),
+        "proba": proba,
+    }
 
 
 class VideoHashMap:
@@ -176,7 +198,7 @@ class TrackFrame:
         if self._cat_name_proba is None:
             embedding = self.roi_embedding
             start = datetime.now()
-            result = classification.classify_embedding(embedding)
+            result = classify_embedding(embedding)
             self._cat_name_proba = result["proba"]
             utils.log_timing(logger, "Identification", start, self.frame_hash)
         return self._cat_name_proba
@@ -411,7 +433,7 @@ class Track:
                 ent_wgt = utils.entropy_weights(probs)
                 probs_avg = np.average(probs, axis=0, weights=ent_wgt)
                 cat_id = int(np.argmax(probs_avg))
-                cat_name = classification._classifier.classes_[cat_id]
+                cat_name = _model.classes_[cat_id]
                 cat_conf = probs_avg[cat_id]
             else:
                 cat_name = None
