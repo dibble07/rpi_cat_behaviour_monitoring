@@ -24,7 +24,7 @@ from config import (
     TRACK_SUMMARIES_PATH,
     settings,
 )
-from ffmpegwriter import FfmpegWriter
+from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 

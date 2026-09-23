@@ -9,7 +9,7 @@ from datetime import datetime
 
 import numpy as np
 
-from camera import get_camera
+from video_io import get_camera
 
 logger = logging.getLogger(__name__)
 thread_exception: BaseException | None = None

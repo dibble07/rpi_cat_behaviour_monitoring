@@ -13,9 +13,9 @@ import numpy as np
 import utils
 from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
-from ffmpegwriter import FfmpegWriter
 from shared import frame_queue, set_recording_queue_size, shutdown_event
 from tracking import TrackManager, TrackState, VideoHashMap
+from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 

@@ -7,10 +7,10 @@ import time
 from capture import capture_thread
 from config import RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
 from detection import Frame
-from ffmpegwriter import FfmpegWriter
 from monitoring import monitoring_thread
 from processing import _release_writers
 from shared import frame_queue, set_recording_queue_size, shutdown_event
+from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
