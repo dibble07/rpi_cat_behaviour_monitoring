@@ -9,7 +9,7 @@ from config import RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
 from ffmpegwriter import FfmpegWriter
 from monitoring import monitoring_thread
 from processing import Frame, _release_writers
-from shared import frame_queue, shutdown_event
+from shared import frame_queue, set_recording_queue_size, shutdown_event
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ def raw_recording_thread() -> None:
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,
                 quality=settings.VIDEO_QUALITY,
+                queue_size_callback=set_recording_queue_size,
             )
             rotation_deadline = now_mono + _ROTATION_SECONDS
             logger.warning(f"Starting raw test recording: {writer.output_path}")

@@ -3,13 +3,13 @@ import os
 import queue
 import subprocess
 import threading
+from collections.abc import Callable
 from datetime import datetime
 
 import numpy as np
 
 import utils
 from config import OUTPUT_DIR
-from shared import set_recording_queue_size
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,14 @@ class FfmpegWriter:
         width: int,
         height: int,
         quality: int,
-    ):
+        queue_size_callback: Callable[[int], None] | None = None,
+    ) -> None:
         self.init_timestamp = init_timestamp
+        self._queue_size_callback = queue_size_callback
         filename = f"{self.init_timestamp}.tmp.mp4"
         self.output_path = os.path.join(OUTPUT_DIR, filename)
         self._queue: queue.Queue = queue.Queue(maxsize=25)
-        set_recording_queue_size(self._queue.qsize())
+        self._report_queue_size()
         self._check_queue_empty()
         cmd = [
             "ffmpeg",
@@ -74,10 +76,14 @@ class FfmpegWriter:
                 f"Recording queue not empty: {pending} item(s) for {self.output_path}"
             )
 
+    def _report_queue_size(self) -> None:
+        if self._queue_size_callback is not None:
+            self._queue_size_callback(self._queue.qsize())
+
     def _writer_loop(self) -> None:
         while True:
             item = self._queue.get()
-            set_recording_queue_size(self._queue.qsize())
+            self._report_queue_size()
             if item is None:
                 break
 
@@ -90,14 +96,14 @@ class FfmpegWriter:
     def write(self, frame: np.ndarray, frame_hash: str) -> None:
         start = datetime.now()
         self._queue.put((start, frame_hash, frame))
-        set_recording_queue_size(self._queue.qsize())
+        self._report_queue_size()
         utils.log_timing(logger, "FFmpeg enqueue", start, frame_hash)
 
     def release(self) -> None:
         self._queue.put(None)
-        set_recording_queue_size(self._queue.qsize())
+        self._report_queue_size()
         self._thread.join()
         self._proc.stdin.close()
         self._proc.wait()
-        set_recording_queue_size(self._queue.qsize())
+        self._report_queue_size()
         self._check_queue_empty()

@@ -16,7 +16,7 @@ import numpy as np
 import utils
 from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
 from ffmpegwriter import FfmpegWriter
-from shared import frame_queue, shutdown_event
+from shared import frame_queue, set_recording_queue_size, shutdown_event
 from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
 from yolo_ncnn import YoloNcnn
 
@@ -408,6 +408,7 @@ def processing_thread():
                             settings.FRAME_WIDTH,
                             settings.FRAME_HEIGHT,
                             settings.VIDEO_QUALITY,
+                            queue_size_callback=set_recording_queue_size,
                         )
                         logger.warning(
                             f"({frame_recording.hash}) Starting recording: {writer.output_path}"
