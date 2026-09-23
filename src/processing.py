@@ -1,267 +1,31 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import queue
 from collections import deque
 from datetime import datetime
-from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
-import cv2
 import numpy as np
 
 import utils
 from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
-from ffmpegwriter import FFmpegWriter
-from shared import frame_queue, shutdown_event
-from tracking import TrackFrame, TrackManager, TrackState, TrackSummary, VideoHashMap
-from yolo_ncnn import YOLO_NCNN
+from detection import Frame
+from shared import frame_queue, set_recording_queue_size, shutdown_event
+from tracking import TrackManager, TrackState, VideoHashMap
+from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
-# load object detection model
-MODEL = YOLO_NCNN(Path("models") / settings.MODEL_DETECTION_PATH)
-_ = MODEL(
-    np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
-    imgsz=tuple(settings.DETECTION_IMGSZ),
-    conf=settings.CONF,
-    iou=settings.NMS_IOU_THRESHOLD,
-    max_det=settings.MAX_DETS,
-)
-
-# define background subtractor
-BACK_SUB = cv2.createBackgroundSubtractorMOG2(
-    history=settings.BACKGROUND_HISTORY, detectShadows=False
-)
-
-# low-resolution dimensions used for motion detection
-_GREY_W = 640
-_GREY_H = 480
-
-
-class Frame:
-    """Store frame image, timestamp, and supplementary processing state"""
-
-    def __init__(
-        self,
-        timestamp: datetime,
-        image: np.ndarray,
-        prev_frame: Optional[Frame],
-        prev_track_mask: np.ndarray,
-        forced_detection_run: bool,
-    ) -> None:
-        self.timestamp = timestamp
-        self.image = np.ascontiguousarray(image)
-        self.prev_track_mask = prev_track_mask
-        self.forced_detection_run = forced_detection_run
-        start = datetime.now()
-        self.image_grey_blur = cv2.GaussianBlur(
-            cv2.resize(
-                cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
-            ),
-            (5, 5),
-            0,
-        )
-        self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
-        utils.log_timing(logger, "Blur and hash", start, self.hash)
-
-        if prev_frame is None:
-            logger.warning(f"({self.hash}) No previous frame provided")
-            self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
-        else:
-            self.prev_image_grey_blur = prev_frame.image_grey_blur.copy().astype(
-                np.uint8
-            )
-
-    def _identify_search_area(self):
-        """Identify search area via frame differencing, background subtraction and previous tracks."""
-        # start timing
-        start = datetime.now()
-        logger.debug(f"({self.hash}) Running motion detection")
-
-        # calculate mask of changes from the previous frame
-        diff = cv2.absdiff(self.prev_image_grey_blur, self.image_grey_blur)
-        _, diff_mask = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-
-        # get mask of foreground from background removal model
-        fore_mask = BACK_SUB.apply(self.image_grey_blur)
-
-        # combine change and foreground masks
-        motion_mask = cv2.bitwise_or(diff_mask, fore_mask)
-
-        # remove small pixel clusters
-        contours, _ = cv2.findContours(
-            motion_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-        for c in contours:
-            if cv2.contourArea(c) < int(0.00005 * motion_mask.size):
-                cv2.drawContours(motion_mask, [c], -1, (0.0,), -1)
-
-        # resize previous track mask
-        track_mask = cv2.resize(
-            self.prev_track_mask,
-            (_GREY_W, _GREY_H),
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-        # combine motion and previous detection masks into the next detection region
-        search_mask = cv2.bitwise_or(motion_mask, track_mask)
-
-        # store search mask and presence flag
-        self._search_mask = cv2.resize(
-            search_mask,
-            (settings.FRAME_WIDTH, settings.FRAME_HEIGHT),
-            interpolation=cv2.INTER_NEAREST,
-        )
-        self._has_search_area = (
-            cv2.countNonZero(search_mask) / search_mask.size
-        ) > 0.001
-
-        # log detection duration
-        utils.log_timing(logger, "Motion detection", start, self.hash)
-
-        # log motion
-        if self._has_search_area:
-            logger.debug(f"({self.hash}) Has search area: {self._has_search_area}")
-
-    @property
-    def search_mask(self) -> np.ndarray:
-        if not hasattr(self, "_search_mask"):
-            self._identify_search_area()
-        return self._search_mask
-
-    @property
-    def has_search_area(self) -> bool:
-        if not hasattr(self, "_has_search_area"):
-            self._identify_search_area()
-        return self._has_search_area
-
-    def _identify_search_bbox(self):
-
-        logger.debug(f"({self.hash}) Identifying search bounding box")
-
-        # identify bbox of the next detection region
-        h, w = self.image.shape[:2]
-        ys, xs = np.where(self.search_mask > 0)
-        x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
-        self._search_bbox = utils.expand_bbox_from_bounds(
-            x_min, x_max, y_min, y_max, w, h, 0.1
-        )
-
-    @property
-    def search_bbox(self) -> list:
-        if not hasattr(self, "_search_bbox"):
-            self._identify_search_bbox()
-        return self._search_bbox
-
-    def detect_objects(self) -> tuple[List[TrackFrame], bool]:
-        track_frames = []
-
-        # run detection if motion is present, active tracks exist, or on forced cadence
-        if self.has_search_area or self.forced_detection_run:
-
-            # log forced run
-            if not self.has_search_area and self.forced_detection_run:
-                logger.debug(f"({self.hash}) Forced object detection run")
-
-            # start timing
-            start = datetime.now()
-            logger.debug(f"({self.hash}) Running object detection")
-            did_run_detection = True
-
-            # crop image to the search region
-            if not self.has_search_area:
-                image = self.image.copy()
-                offsets = np.array([0, 0, 0, 0], dtype=np.int32)
-            else:
-                image = self.image[
-                    self.search_bbox[1] : self.search_bbox[3],
-                    self.search_bbox[0] : self.search_bbox[2],
-                ].copy()
-                offsets = np.array(
-                    [
-                        self.search_bbox[0],
-                        self.search_bbox[1],
-                        self.search_bbox[0],
-                        self.search_bbox[1],
-                    ],
-                    dtype=np.int32,
-                )
-
-            # run model inference
-            results = MODEL(
-                image,
-                imgsz=tuple(settings.DETECTION_IMGSZ),
-                conf=settings.CONF,
-                iou=settings.NMS_IOU_THRESHOLD,
-                max_det=settings.MAX_DETS,
-            )[0]
-
-            # process detections
-            for r in results.boxes:
-                bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                object_name = MODEL.names[int(r.cls[0].item())]
-                frame_wh = (self.image.shape[1], self.image.shape[0])
-                track_frames.append(
-                    TrackFrame(
-                        frame_hash=self.hash,
-                        image=self.image,
-                        bbox=utils.Bbox(xyxy=bbox, frame_wh=frame_wh),
-                        object_name=object_name,
-                        confidence=float(r.conf[0].item()),
-                    )
-                )
-
-            # log detection duration
-            utils.log_timing(logger, "Object detection", start, self.hash)
-
-            # log detections
-            if track_frames:
-                logger.debug(
-                    f"({self.hash}) Object(s) detected: {', '.join(f'{f.object_name} ({f.confidence:.2f})' for f in track_frames)}"
-                )
-        else:
-            did_run_detection = False
-        return track_frames, did_run_detection
-
-    @property
-    def processing_track_summaries(self) -> List[TrackSummary]:
-        if not hasattr(self, "_processing_track_summaries"):
-            raise RuntimeError(
-                f"Processing track summaries not set yet for frame {self.hash}"
-            )
-        return self._processing_track_summaries
-
-    @processing_track_summaries.setter
-    def processing_track_summaries(
-        self, processing_track_summaries: List[TrackSummary]
-    ) -> None:
-        self._processing_track_summaries = processing_track_summaries
-
-    @property
-    def recording_track_summaries(self) -> List[TrackSummary]:
-        if not hasattr(self, "_recording_track_summaries"):
-            raise RuntimeError(
-                f"Recording track summaries not set yet for frame {self.hash}"
-            )
-        return self._recording_track_summaries
-
-    @recording_track_summaries.setter
-    def recording_track_summaries(
-        self, recording_track_summaries: List[TrackSummary]
-    ) -> None:
-        self._recording_track_summaries = recording_track_summaries
-
 
 def _release_writers(
-    writer: FFmpegWriter,
+    writer: FfmpegWriter,
     video_hash_map: VideoHashMap = None,
     frame_hash: Optional[str] = None,
     log_msg: str = "",
-) -> Optional[FFmpegWriter]:
+) -> Optional[FfmpegWriter]:
     """Release the video writer, with optional logging."""
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
@@ -402,12 +166,13 @@ def processing_thread():
                     # initialise recording and write pre buffer to video file
                     if not recording:
 
-                        writer = FFmpegWriter(
+                        writer = FfmpegWriter(
                             frame_recording.timestamp.strftime(TIMESTAMP_FORMAT),
                             settings.FPS,
                             settings.FRAME_WIDTH,
                             settings.FRAME_HEIGHT,
                             settings.VIDEO_QUALITY,
+                            queue_size_callback=set_recording_queue_size,
                         )
                         logger.warning(
                             f"({frame_recording.hash}) Starting recording: {writer.output_path}"

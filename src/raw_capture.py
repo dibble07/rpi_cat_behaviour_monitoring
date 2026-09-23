@@ -6,10 +6,11 @@ import time
 
 from capture import capture_thread
 from config import RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
-from ffmpegwriter import FFmpegWriter
+from detection import Frame
 from monitoring import monitoring_thread
-from processing import Frame, _release_writers
-from shared import frame_queue, shutdown_event
+from processing import _release_writers
+from shared import frame_queue, set_recording_queue_size, shutdown_event
+from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def raw_recording_thread() -> None:
     """Write raw clips from captured frames and rotate periodically"""
     logger.info("Raw recording thread started")
 
-    writer: FFmpegWriter | None = None
+    writer: FfmpegWriter | None = None
     prev_frame: Frame | None = None
     rotation_deadline = time.monotonic() + _ROTATION_SECONDS
     while not shutdown_event.is_set() or not frame_queue.empty():
@@ -42,12 +43,13 @@ def raw_recording_thread() -> None:
         if writer is None or now_mono >= rotation_deadline:
             if writer is not None:
                 writer = _release_writers(writer, log_msg="raw test rotation")
-            writer = FFmpegWriter(
+            writer = FfmpegWriter(
                 init_timestamp=timestamp.strftime(TIMESTAMP_FORMAT),
                 fps=settings.FPS,
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,
                 quality=settings.VIDEO_QUALITY,
+                queue_size_callback=set_recording_queue_size,
             )
             rotation_deadline = now_mono + _ROTATION_SECONDS
             logger.warning(f"Starting raw test recording: {writer.output_path}")
