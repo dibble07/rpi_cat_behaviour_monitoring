@@ -171,14 +171,12 @@ The web player provides a web-based interface for viewing recorded tracks. Acces
 | [src/capture.py](src/capture.py) | Camera frame acquisition: reads frames and enqueues to `frame_queue` |
 | [src/processing.py](src/processing.py) | Core processing pipeline: object detection, tracking, recording |
 | [src/monitoring.py](src/monitoring.py) | Resource monitoring: logs system metrics periodically |
-| [src/camera.py](src/camera.py) | Camera abstraction layer: handles different camera backends |
 | [src/settings.toml](src/settings.toml) | Application configuration |
 | [src/config.py](src/config.py) | Configuration loader: reads settings from `settings.toml` |
-| [src/classification.py](src/classification.py) | Cat identity classification: predicts cat labels from embedding features |
 | [src/tracking.py](src/tracking.py) | Tracking system: Hungarian algorithm, Kalman filtering, state machine |
-| [src/ffmpegwriter.py](src/ffmpegwriter.py) | Video writer wrapper for encoded clip output |
-| [src/yolo_ncnn.py](src/yolo_ncnn.py) | YOLO inference via NCNN directly instead of PyTorch |
+| [src/detection.py](src/detection.py) | Object detection: YOLO model, wrappers and gates |
 | [src/utils.py](src/utils.py) | Utility functions |
+| [src/video_io.py](src/video_io.py) | Camera and video input/output: frame capture and ffmpeg recording |
 | [src/raw_capture.py](src/raw_capture.py) | Minimal app for recording raw test video to mock inputs |
 | [src/web_player.py](src/web_player.py) | Flask web server serving web player interface and video playback |
 | [src/static/](src/static/) | Web player static files |
