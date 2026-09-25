@@ -1,4 +1,5 @@
 let sort = { by: 'track_start_dt_tm', dir: 'desc' };
+const LEAD_IN_S = 2;
 const cat = document.getElementById('filterCatId');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
@@ -66,7 +67,7 @@ async function update() {
             metadataTrackStart.textContent = formatTrackTime(t.track_elapsed_start_s);
             metadataTrackStop.textContent = formatTrackTime(t.track_elapsed_end_s);
             video.src = `/video/${t.video_name}`;
-            video.currentTime = t.track_elapsed_start_s;
+            video.currentTime = Math.max(0, t.track_elapsed_start_s - LEAD_IN_S);
             video.play();
             annotationData = null;
             fetch(`/api/tracks/${t.manager_id}/${t.track_id}/annotations`)
