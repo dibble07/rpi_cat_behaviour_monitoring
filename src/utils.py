@@ -8,7 +8,9 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
+def get_video_paths(
+    mock_inputs: bool = True, mock_inputs_long: bool = True, raw_video: bool = True
+) -> list[Path]:
     """Return video paths from selected dataset sources"""
 
     # identify source directories
@@ -16,6 +18,8 @@ def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Pa
     source_dirs = []
     if mock_inputs:
         source_dirs.append(datasets_root / "mock_inputs")
+    if mock_inputs_long:
+        source_dirs.append(datasets_root / "mock_inputs_long")
     if raw_video:
         source_dirs.append(datasets_root / "raw_video")
     if not source_dirs:
