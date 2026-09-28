@@ -210,6 +210,9 @@ class TrackState(IntEnum):
     STALE = auto()
     EXPIRED = auto()
 
+    def __bool__(self) -> bool:
+        return self is not TrackState.EXPIRED
+
 
 @dataclass(slots=True)
 class TrackSummary:
@@ -232,6 +235,9 @@ class TrackSummary:
     cat_name_entropy: Optional[str] = None
     cat_conf_entropy: Optional[float] = None
 
+    def __bool__(self) -> bool:
+        return self.confirmed and bool(self.state)
+
 
 class Track:
     """Ordered collection of per-frame matches for a single target."""
@@ -249,6 +255,9 @@ class Track:
 
     def __len__(self) -> int:
         return self.summary.frame_count
+
+    def __bool__(self) -> bool:
+        return bool(self.summary)
 
     @property
     def summary(self) -> TrackSummary:
@@ -442,10 +451,8 @@ class Track:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
 
-        if state == TrackState.EXPIRED and prev_summary.state != TrackState.EXPIRED:
+        if not state and prev_summary.state:
             self._expired_at_frame_count = frame_count
-        if state in {TrackState.ACTIVE, TrackState.STALE}:
-            self._confirmed = True
 
         frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
@@ -550,9 +557,7 @@ class TrackManager:
 
     @property
     def non_expired_tracks(self) -> list[Track]:
-        return [
-            track for track in self.tracks if track.summary.state < TrackState.EXPIRED
-        ]
+        return [track for track in self.tracks if track.summary.state]
 
     def get_track(self, track_id: int) -> Track:
         matches = [track for track in self.tracks if track.track_id == track_id]
@@ -649,7 +654,7 @@ class TrackManager:
                 tracks_to_delete = [
                     t
                     for t in self.tracks
-                    if t.summary.state >= TrackState.EXPIRED
+                    if not t.summary.state
                     and t.summary.frame_count - t._expired_at_frame_count
                     > np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
                 ]
