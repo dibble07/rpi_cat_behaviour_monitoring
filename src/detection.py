@@ -374,18 +374,16 @@ class Frame:
         return track_frames, did_run_detection
 
     @property
-    def processing_track_summaries(self) -> List[TrackSummary]:
-        if not hasattr(self, "_processing_track_summaries"):
+    def proc_ids(self) -> List[int]:
+        if not hasattr(self, "_proc_ids"):
             raise RuntimeError(
-                f"Processing track summaries not set yet for frame {self.hash}"
+                f"Processing track ids not set yet for frame {self.hash}"
             )
-        return self._processing_track_summaries
+        return self._proc_ids
 
-    @processing_track_summaries.setter
-    def processing_track_summaries(
-        self, processing_track_summaries: List[TrackSummary]
-    ) -> None:
-        self._processing_track_summaries = processing_track_summaries
+    @proc_ids.setter
+    def proc_ids(self, proc_ids: List[int]) -> None:
+        self._proc_ids = proc_ids
 
     @property
     def recording_track_summaries(self) -> List[TrackSummary]:

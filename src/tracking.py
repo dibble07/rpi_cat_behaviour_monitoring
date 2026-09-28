@@ -226,14 +226,14 @@ class TrackSummary:
     last_detection_hash: str
     last_frame: Optional[TrackFrame]
     last_valid_frame: TrackFrame
+    object_name: str
+    object_valid: bool
     state: TrackState
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
     confirmed: bool = False
     cat_name: Optional[str] = None
     cat_conf: Optional[float] = None
-    cat_name_entropy: Optional[str] = None
-    cat_conf_entropy: Optional[float] = None
 
     def __bool__(self) -> bool:
         return self.confirmed and bool(self.state)
@@ -264,7 +264,7 @@ class Track:
         return self._summary
 
     def score(self, candidate: TrackFrame) -> float:
-        if candidate.object_name == self.summary.last_valid_frame.object_name:
+        if candidate.object_name == self.summary.object_name:
             # bounding box
             iou = centroid_sim = size_sim = 0.0
             for ref_bbox in [
@@ -288,7 +288,7 @@ class Track:
             )
 
             # visual similarity
-            if self.summary.last_valid_frame.object_name == "cat":
+            if self.summary.object_name == "cat":
                 valid_frames = [f for f in self._frames if f is not None]
                 ent_wgt = utils.entropy_weights(
                     np.stack([f.cat_name_proba for f in valid_frames])
@@ -436,7 +436,7 @@ class Track:
         }
 
         # aggregate cat name based weighted by entropy
-        if last_frame is not None:
+        if last_frame:
             if last_frame.object_name == "cat":
                 probs = np.stack([f.cat_name_proba for f in self._frames if f])
                 ent_wgt = utils.entropy_weights(probs)
@@ -462,6 +462,10 @@ class Track:
             first_detection_hash=self._first_detection_hash,
             last_frame=last_frame,
             last_valid_frame=last_valid_frame,
+            object_name=last_valid_frame.object_name,
+            object_valid=(
+                last_valid_frame.object_name not in settings.EXCLUDED_OBJECTS
+            ),
             latest_detection_index=latest_detection_index,
             last_detection_hash=last_valid_frame.frame_hash,
             history=history,
@@ -521,7 +525,7 @@ class TrackManager:
                 "track_elapsed_start_s": start_offset_s,
                 "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
-                "object_name": track.summary.last_valid_frame.object_name,
+                "object_name": track.summary.object_name,
                 "track_start_dt_tm": (
                     start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
@@ -665,11 +669,7 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
-            if (
-                track.summary.confirmed
-                and track.summary.last_valid_frame.object_name
-                not in settings.EXCLUDED_OBJECTS
-            ):
+            if track.summary.confirmed and track.summary.object_valid:
                 self._export_track_summary(track, video_hash_map)
             self.tracks.remove(track)
 
