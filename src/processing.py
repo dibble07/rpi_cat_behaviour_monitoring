@@ -14,7 +14,7 @@ import utils
 from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
 from shared import frame_queue, set_recording_queue_size, shutdown_event
-from tracking import TrackManager, TrackState, VideoHashMap
+from tracking import TrackManager, VideoHashMap
 from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,6 @@ def processing_thread():
         maxlen=int(np.ceil(settings.FPS * settings.BUFFER_DUR))
     )
     processing_buffer: deque[Frame] = deque()
-    replay_buffer: deque[tuple[datetime, np.ndarray]] = deque()
 
     # initialise state and previous frame
     recording = False
@@ -66,15 +65,11 @@ def processing_thread():
     track_manager = TrackManager()
     video_hash_map = VideoHashMap()
 
-    while not shutdown_event.is_set() or not frame_queue.empty() or replay_buffer:
+    while not shutdown_event.is_set() or not frame_queue.empty():
 
         # get frame from capture queue
         try:
-            if replay_buffer:
-                timestamp, image = replay_buffer.popleft()
-                logger.info("Processing replay frame")
-            else:
-                timestamp, image = frame_queue.get(timeout=0.1)
+            timestamp, image = frame_queue.get(timeout=0.1)
             start_capture = datetime.now()
             frame_proc = Frame(
                 timestamp=timestamp,
@@ -181,6 +176,10 @@ def processing_thread():
                 if not rec_summaries_valid or has_excluded_object:
                     if has_excluded_object:
                         log_msg = "excluded object detected"
+                        pre_buffer.clear()
+                        track_manager.remove_tracks(
+                            "all", video_hash_map=video_hash_map
+                        )
                     elif not rec_summaries_valid:
                         log_msg = "all tracks expired"
                     writer = _release_writers(
@@ -189,27 +188,6 @@ def processing_thread():
                         frame_rec.hash,
                         log_msg,
                     )
-
-                    if not track_manager.non_expired_tracks:
-                        replayed = len(processing_buffer)
-                        if replayed:
-                            while processing_buffer:
-                                frame_replay = processing_buffer.popleft()
-                                replay_buffer.append(
-                                    (frame_replay.timestamp, frame_replay.image)
-                                )
-                            logger.info(
-                                f"({frame_rec.hash}) Queued {replayed} delayed frame(s) for replay"
-                            )
-                            pre_buffer.clear()
-                            track_manager.remove_tracks(
-                                "all", video_hash_map=video_hash_map
-                            )
-                            prev_frame = None
-                            frames_since_detection = 0
-                            logger.info(
-                                f"({frame_rec.hash}) Reset processing state before replaying delayed frames"
-                            )
                     recording = False
 
             else:
