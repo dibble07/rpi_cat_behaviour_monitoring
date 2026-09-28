@@ -137,19 +137,14 @@ def processing_thread():
                 ]
             )
             current_confirmed_summaries_recording = [
-                s
-                for s in frame_recording.recording_track_summaries
-                if s.state in [TrackState.ACTIVE, TrackState.STALE]
+                s for s in frame_recording.recording_track_summaries if s
             ]
             has_excluded_object = any(
                 s.last_valid_frame.object_name in settings.EXCLUDED_OBJECTS
                 for s in current_confirmed_summaries_recording
             )
 
-            if any(
-                s.state in [TrackState.ACTIVE, TrackState.STALE]
-                for s in current_confirmed_summaries_recording
-            ):
+            if current_confirmed_summaries_recording:
 
                 if has_excluded_object:
 
@@ -199,8 +194,7 @@ def processing_thread():
 
                 # stop recording close video file
                 recording_tracks_valid = any(
-                    s.state < TrackState.EXPIRED
-                    for s in frame_recording.processing_track_summaries
+                    s.state for s in frame_recording.processing_track_summaries
                 )
                 if not recording_tracks_valid or has_excluded_object:
                     if has_excluded_object:
