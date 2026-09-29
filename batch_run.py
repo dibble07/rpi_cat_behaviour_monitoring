@@ -13,7 +13,7 @@ import utils
 
 
 def main() -> int:
-    video_paths = utils.get_video_paths(mock_inputs=True, raw_video=False)
+    video_paths = utils.get_video_paths(mock_inputs=True)
     app_path = SRC_ROOT / "app.py"
 
     for index, video_path in enumerate(video_paths, start=1):

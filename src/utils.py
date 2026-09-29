@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_video_paths(
-    mock_inputs: bool = True, mock_inputs_long: bool = True, raw_video: bool = True
+    mock_inputs: bool = False, mock_inputs_long: bool = False, raw_video: bool = False
 ) -> list[Path]:
     """Return video paths from selected dataset sources"""
 
