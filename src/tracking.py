@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import IntEnum, auto
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
@@ -24,7 +26,8 @@ from config import (
     TRACK_SUMMARIES_PATH,
     settings,
 )
-from video_io import FfmpegWriter
+from shared import cam
+from video_io import Cv2Camera, FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +92,17 @@ class VideoHashMap:
         return self._videos[video_name]["hashes"]  # type: ignore[return-value]
 
 
+_embedding_model_path = Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx"
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
+    _embedding_model_path,
     providers=["CPUExecutionProvider"],
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
+
+
+@lru_cache(maxsize=1)
+def _embedding_model_sha256() -> str:
+    return hashlib.sha256(_embedding_model_path.read_bytes()).hexdigest()
 
 
 def embed_image(image: np.ndarray) -> np.ndarray:
@@ -542,6 +551,28 @@ class TrackManager:
             track_filename = f"track-{self.manager_id}-{track.track_id}.json"
             with open(os.path.join(METADATA_DIR, track_filename), "w") as f:
                 json.dump(bbox_coords, f, indent=4)
+
+            # export full track data for behaviour model training
+            if SYSTEM != "Linux" and isinstance(cam, Cv2Camera):
+                latest_detection_index = track.summary.latest_detection_index
+                frames = [f for f in track._frames[: latest_detection_index + 1] if f]
+                frame_hashes = [f.frame_hash if f else None for f in frames]
+                images = {f.frame_hash: f.roi for f in frames if f}
+                embeddings = {f.frame_hash: f.roi_embedding for f in frames if f}
+                full_track = {
+                    "video_path": cam.video_path,
+                    "cat_id": track.summary.cat_name,
+                    "frame_hashes": frame_hashes,
+                    "images": images,
+                    "embeddings": embeddings,
+                    "embedding_model_sha256": _embedding_model_sha256(),
+                }
+                joblib.dump(
+                    full_track,
+                    os.path.join(
+                        METADATA_DIR, track_filename.replace(".json", ".joblib")
+                    ),
+                )
         else:
             logger.warning(
                 f"Track {track.track_id} could not be exported because its frames are not in the video hash map."
