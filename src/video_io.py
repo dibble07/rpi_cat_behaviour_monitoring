@@ -21,7 +21,7 @@ class Cv2Camera:
     def __init__(self, video_path: Optional[str] = None):
         # initialise camera object
         self.video_path = (
-            random.choice(utils.get_video_paths(raw_video=False))
+            random.choice(utils.get_video_paths(mock_inputs=True))
             if video_path is None
             else video_path
         )

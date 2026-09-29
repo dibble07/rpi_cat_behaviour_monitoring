@@ -190,4 +190,5 @@ The web player provides a web-based interface for viewing recorded tracks. Acces
 | **finetune_data/** | Fine-tuning dataset with images and label annotations |
 | **finetune_data_cropped/** | Pre-processed version of fine-tuning data |
 | **mock_inputs/** | Raw video for development camera mocking |
+| **mock_inputs_long/** | Long (~5 mins) raw video for development camera mocking |
 | **raw_video/** | Raw video files for offline processing and testing |
