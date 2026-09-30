@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -183,10 +182,6 @@ _back_sub = cv2.createBackgroundSubtractorMOG2(
     history=settings.BACKGROUND_HISTORY, detectShadows=False
 )
 
-# low-resolution dimensions used for motion detection
-_GREY_W = 640
-_GREY_H = 480
-
 
 class Frame:
     """Store frame image, timestamp, and supplementary processing state"""
@@ -204,19 +199,13 @@ class Frame:
         self.prev_track_mask = prev_track_mask
         self.forced_detection_run = forced_detection_run
         start = datetime.now()
-        self.image_grey_blur = cv2.GaussianBlur(
-            cv2.resize(
-                cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY), (_GREY_W, _GREY_H)
-            ),
-            (5, 5),
-            0,
-        )
-        self.hash = hashlib.md5(self.image_grey_blur.tobytes()).hexdigest()[:6]
+        self.image_grey_blur = utils.blur_image(self.image)
+        self.hash = utils.hash_image(self.image_grey_blur)
         utils.log_timing(logger, "Blur and hash", start, self.hash)
 
         if prev_frame is None:
             logger.warning(f"({self.hash}) No previous frame provided")
-            self.prev_image_grey_blur = np.zeros((_GREY_H, _GREY_W), dtype=np.uint8)
+            self.prev_image_grey_blur = np.zeros_like(self.image_grey_blur)
         else:
             self.prev_image_grey_blur = prev_frame.image_grey_blur.copy().astype(
                 np.uint8
@@ -249,7 +238,7 @@ class Frame:
         # resize previous track mask
         track_mask = cv2.resize(
             self.prev_track_mask,
-            (_GREY_W, _GREY_H),
+            (self.image_grey_blur.shape[1], self.image_grey_blur.shape[0]),
             interpolation=cv2.INTER_NEAREST,
         )
 

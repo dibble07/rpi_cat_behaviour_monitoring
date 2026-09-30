@@ -1,11 +1,27 @@
+import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def blur_image(image: np.ndarray) -> np.ndarray:
+    """Create a fixed-size resized grayscale blur of an image."""
+    return cv2.GaussianBlur(
+        cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (640, 480)), (5, 5), 0
+    )
+
+
+def hash_image(image: np.ndarray) -> str:
+    """Return a short content hash for an image array."""
+    if image.ndim != 2:
+        image = blur_image(image)
+    return hashlib.md5(image.tobytes()).hexdigest()[:6]
 
 
 def get_video_paths(
