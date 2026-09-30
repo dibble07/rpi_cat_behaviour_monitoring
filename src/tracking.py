@@ -257,7 +257,7 @@ class Track:
         self.track_id = track_id
         self._first_detection_index = frame_index
         self._first_detection_hash = frame_hash
-        self._frames: list[Optional[TrackFrame]] = [None] * frame_index
+        self._frames: list[Optional[TrackFrame]] = []
         self._frame_hash = frame_hash
         self._expired_at_frame_count: Optional[int] = None
         self.append(frame)
@@ -315,9 +315,7 @@ class Track:
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
             recency_score = np.exp(-latest_frame_age / settings.FPS)
-            track_age = (
-                self.summary.latest_detection_index - self.summary.first_detection_index
-            )
+            track_age = self.summary.latest_detection_index
             age_score = 1 - np.exp(-track_age / settings.FPS)
 
             # aggregate component scores
@@ -383,17 +381,13 @@ class Track:
 
         # identify simple info about track
         frame_count = len(self._frames)
-        history_frames = self._frames[
-            -int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS)) :
-        ]
+        history_duration = int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS))
+        history_frames = self._frames[-history_duration:]
         history = [f.bbox.cxcywh[:2] if f is not None else None for f in history_frames]
 
         # identify info about end of track
-        for i, frame in enumerate(reversed(self._frames)):
-            if frame is not None:
-                last_valid_frame = frame
-                latest_detection_index = frame_count - i - 1
-                break
+        latest_detection_index = max(i for i, f in enumerate(self._frames) if f)
+        last_valid_frame = self._frames[latest_detection_index]
 
         # calculate state transitions
         match getattr(prev_summary, "state", None):
@@ -401,11 +395,7 @@ class Track:
                 state = TrackState.NEW
             case TrackState.NEW:
                 new_frame_count = int(np.ceil(settings.FPS * settings.TRACK_NEW_DUR))
-                frames_init = self._frames[
-                    self._first_detection_index : self._first_detection_index
-                    + new_frame_count
-                ]
-                frames_init_valid = [f for f in frames_init if f is not None]
+                frames_init_valid = [f for f in self._frames[:new_frame_count] if f]
                 if (
                     len(frames_init_valid) > new_frame_count / 2
                     and sum(
@@ -417,7 +407,7 @@ class Track:
                     > new_frame_count / 4
                 ):
                     state = TrackState.ACTIVE
-                elif self._first_detection_index + new_frame_count >= frame_count:
+                elif new_frame_count >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
@@ -575,11 +565,11 @@ class TrackManager:
                 )
         else:
             logger.warning(
-                f"Track {track.track_id} could not be exported because its frames are not in the video hash map."
+                f"Track {track.track_id} has frames that are not in the video hash map."
             )
 
     def __len__(self) -> int:
-        lengths = {len(track) for track in self.tracks}
+        lengths = {len(t) + t.summary.first_detection_index for t in self.tracks}
         match len(lengths):
             case 0:
                 return 0
