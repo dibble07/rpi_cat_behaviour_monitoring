@@ -185,9 +185,9 @@ The web player provides a web-based interface for viewing recorded tracks. Acces
 
 | Directory | Purpose |
 |---|---|
-| **classification_data/** | Training data for cat identification and behaviour classification: contains labels and train/validation splits |
-| **coco_metadata/** | COCO object detection training data configuration files: base and variant configurations |
-| **finetune_data/** | Fine-tuning dataset with images and label annotations |
-| **finetune_data_cropped/** | Pre-processed version of fine-tuning data |
+| **identification_dataset/** | Training data for cat identification |
+| **detection_core_dataset/** | COCO object detection training data configuration files |
+| **detection_finetune_dataset/** | Fine-tuning dataset with images and label annotations |
+| **detection_finetune_cropped_dataset/** | Pre-processed version of fine-tuning data |
 | **mock_inputs/** | Raw video for development camera mocking |
 | **raw_video/** | Raw video files for offline processing and testing |

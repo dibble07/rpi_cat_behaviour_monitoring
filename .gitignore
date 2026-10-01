@@ -214,7 +214,7 @@ models_staging/
 runs/
 object_clips/
 datasets/*
-!datasets/coco_metadata/
+!datasets/detection_core_dataset/
 
 # Docs
 *.pdf
