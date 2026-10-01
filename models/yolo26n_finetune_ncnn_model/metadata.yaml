@@ -1,4 +1,4 @@
-description: Ultralytics YOLO26n_sih0e1vl model trained on datasets/coco_metadata/finetune.yaml
+description: Ultralytics YOLO26n_sih0e1vl model trained on datasets/detection_core_dataset/finetune.yaml
 author: Ultralytics
 date: '2026-10-07T17:58:08.114754+01:00'
 version: 8.4.113
