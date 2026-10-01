@@ -32,7 +32,9 @@ from video_io import Cv2Camera, FfmpegWriter
 logger = logging.getLogger(__name__)
 
 
-_model = joblib.load(Path("models") / "classification_best_model.joblib")
+CAT_CLASSIFICATION_MODEL = joblib.load(
+    Path("models") / "classification_best_model.joblib"
+)
 
 
 def classify_embedding(embedding: np.ndarray) -> dict:
@@ -44,11 +46,11 @@ def classify_embedding(embedding: np.ndarray) -> dict:
         embedding = embedding.reshape(1, -1)
 
     # get probabilities and index
-    proba = _model.predict_proba(embedding)[0]
+    proba = CAT_CLASSIFICATION_MODEL.predict_proba(embedding)[0]
     cat_id = int(np.argmax(proba))
 
     return {
-        "cat_name": _model.classes_[cat_id],
+        "cat_name": CAT_CLASSIFICATION_MODEL.classes_[cat_id],
         "confidence": float(proba[cat_id]),
         "proba": proba,
     }
@@ -441,7 +443,7 @@ class Track:
                 ent_wgt = utils.entropy_weights(probs)
                 probs_avg = np.average(probs, axis=0, weights=ent_wgt)
                 cat_id = int(np.argmax(probs_avg))
-                cat_name = _model.classes_[cat_id]
+                cat_name = CAT_CLASSIFICATION_MODEL.classes_[cat_id]
                 cat_conf = probs_avg[cat_id]
             else:
                 cat_name = None
