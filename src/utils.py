@@ -1,6 +1,7 @@
 import hashlib
 import logging
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -22,6 +23,24 @@ def hash_image(image: np.ndarray) -> str:
     if image.ndim != 2:
         image = blur_image(image)
     return hashlib.md5(image.tobytes()).hexdigest()[:6]
+
+
+@lru_cache(maxsize=None)
+def _get_video_hashes(path: str) -> tuple[str, ...]:
+    capture = cv2.VideoCapture(path)
+    hashes = []
+    while True:
+        success, image = capture.read()
+        if not success:
+            break
+        hashes.append(hash_image(image))
+    capture.release()
+    return tuple(hashes)
+
+
+def get_video_hashes(video_path: str | Path) -> tuple[str, ...]:
+    """Return cached per-frame hashes for every decodable frame of a video."""
+    return _get_video_hashes(str(Path(video_path).resolve()))
 
 
 def get_video_paths(
