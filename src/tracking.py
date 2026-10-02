@@ -103,7 +103,7 @@ _embedding_input_name = _embedding_session.get_inputs()[0].name
 
 
 @lru_cache(maxsize=1)
-def _embedding_model_sha256() -> str:
+def embedding_model_sha256() -> str:
     return hashlib.sha256(_embedding_model_path.read_bytes()).hexdigest()
 
 
@@ -557,7 +557,7 @@ class TrackManager:
                     "frame_hashes": frame_hashes,
                     "images": images,
                     "embeddings": embeddings,
-                    "embedding_model_sha256": _embedding_model_sha256(),
+                    "embedding_model_sha256": embedding_model_sha256(),
                 }
                 joblib.dump(
                     full_track,
