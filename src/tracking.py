@@ -547,7 +547,7 @@ class TrackManager:
             # export full track data for behaviour model training
             if SYSTEM != "Linux" and isinstance(cam, Cv2Camera):
                 latest_detection_index = track.summary.latest_detection_index
-                frames = [f for f in track._frames[: latest_detection_index + 1] if f]
+                frames = track._frames[: latest_detection_index + 1]
                 frame_hashes = [f.frame_hash if f else None for f in frames]
                 images = {f.frame_hash: f.roi for f in frames if f}
                 embeddings = {f.frame_hash: f.roi_embedding for f in frames if f}
