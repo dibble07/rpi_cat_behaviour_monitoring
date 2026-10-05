@@ -25,7 +25,10 @@ def hash_image(image: np.ndarray) -> str:
 
 
 def get_video_paths(
-    mock_inputs: bool = False, mock_inputs_long: bool = False, raw_video: bool = False
+    mock_inputs: bool = False,
+    mock_inputs_long: bool = False,
+    raw_behaviour: bool = False,
+    raw_detection_identification: bool = False,
 ) -> list[Path]:
     """Return video paths from selected dataset sources"""
 
@@ -36,8 +39,10 @@ def get_video_paths(
         source_dirs.append(datasets_root / "mock_inputs")
     if mock_inputs_long:
         source_dirs.append(datasets_root / "mock_inputs_long")
-    if raw_video:
-        source_dirs.append(datasets_root / "raw_video")
+    if raw_behaviour:
+        source_dirs.append(datasets_root / "raw_behaviour")
+    if raw_detection_identification:
+        source_dirs.append(datasets_root / "raw_detection_identification")
     if not source_dirs:
         raise FileNotFoundError(f"No source directories found for selected sources")
 
