@@ -107,6 +107,48 @@ def embedding_model_sha256() -> str:
     return hashlib.sha256(_embedding_model_path.read_bytes()).hexdigest()
 
 
+@lru_cache(maxsize=2)
+def _behaviour_session(model_path: str) -> tuple[ort.InferenceSession, dict]:
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    session = ort.InferenceSession(
+        model_path, sess_options=options, providers=["CPUExecutionProvider"]
+    )
+    metadata = session.get_modelmeta().custom_metadata_map
+    config = json.loads(metadata["behaviour_config"])
+    if config["embedding_model_sha256"] != embedding_model_sha256():
+        raise ValueError("Behaviour model requires a different embedding model")
+    return session, config
+
+
+def classify_behaviour(
+    embedding: np.ndarray,
+    hidden_state: np.ndarray | None = None,
+    model_path: str | Path = Path("models") / f"{settings.MODEL_BEHAVIOUR_PATH}.onnx",
+) -> dict:
+    """Update one frame; retain next_hidden_state per track, or omit state to reset."""
+    session, config = _behaviour_session(str(Path(model_path).resolve()))
+    if hidden_state is None:
+        hidden_state = np.zeros(config["hidden_channels"], dtype=np.float32)
+
+    logits, next_state = session.run(
+        ["logits", "next_hidden_state"],
+        {
+            "embedding": embedding[None],
+            "hidden_state": hidden_state[None],
+        },
+    )
+    probabilities = np.exp(logits[0] - logits[0].max())
+    probabilities /= probabilities.sum()
+    index = int(probabilities.argmax())
+    return {
+        "behaviour": config["behaviours"][index],
+        "confidence": float(probabilities[index]),
+        "next_hidden_state": next_state[0],
+    }
+
+
 def embed_image(image: np.ndarray) -> np.ndarray:
     """Generate an L2-normalized embedding for an RGB image array using cached ONNX session."""
 
