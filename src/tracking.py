@@ -108,7 +108,7 @@ def embedding_model_sha256() -> str:
 
 
 @lru_cache(maxsize=2)
-def _behaviour_session(model_path: str) -> tuple[ort.InferenceSession, dict]:
+def behaviour_session(model_path: str) -> tuple[ort.InferenceSession, dict]:
     options = ort.SessionOptions()
     options.intra_op_num_threads = 1
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
@@ -128,7 +128,7 @@ def classify_behaviour(
     model_path: str | Path = Path("models") / f"{settings.MODEL_BEHAVIOUR_PATH}.onnx",
 ) -> dict:
     """Update one frame; retain next_hidden_state per track, or omit state to reset."""
-    session, config = _behaviour_session(str(Path(model_path).resolve()))
+    session, config = behaviour_session(str(Path(model_path).resolve()))
     if hidden_state is None:
         hidden_state = np.zeros(config["hidden_channels"], dtype=np.float32)
 
