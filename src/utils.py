@@ -22,7 +22,7 @@ def hash_image(image: np.ndarray) -> str:
     """Return a short content hash for an image array."""
     if image.ndim != 2:
         image = blur_image(image)
-    return hashlib.md5(image.tobytes()).hexdigest()[:6]
+    return hashlib.md5(image.tobytes()).hexdigest()[:8]
 
 
 @lru_cache(maxsize=None)
