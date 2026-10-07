@@ -304,6 +304,8 @@ class Track:
         self._frames: list[Optional[TrackFrame]] = []
         self._frame_hash = frame_hash
         self._expired_at_frame_count: Optional[int] = None
+        self.behaviour_history: dict[str, str] = {}
+        self._behaviour_hidden_state: np.ndarray | None = None
         self.append(frame)
 
     def __len__(self) -> int:
@@ -377,6 +379,13 @@ class Track:
             return -1.0
 
     def append(self, frame: Optional[TrackFrame]) -> None:
+        if frame is not None and frame.object_name == "cat":
+            embedding = frame.roi_embedding
+            start = datetime.now()
+            result = classify_behaviour(embedding, self._behaviour_hidden_state)
+            self._behaviour_hidden_state = result["next_hidden_state"]
+            self.behaviour_history[frame.frame_hash] = result["behaviour"]
+            utils.log_timing(logger, "Behaviour", start, frame.frame_hash)
         self._frames.append(frame)
         self._update_summary()
 
@@ -569,6 +578,7 @@ class TrackManager:
                 "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
                 "object_name": track.summary.object_name,
+                "behaviours": list(set(track.behaviour_history.values())),
                 "track_start_dt_tm": (
                     start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
@@ -580,11 +590,18 @@ class TrackManager:
             with open(TRACK_SUMMARIES_PATH, "a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
 
-            # export per-frame bbox coords to a track-specific file
-            bbox_coords = {f.frame_hash: f.bbox.cxcywhn for f in track._frames if f}
+            # export per-frame annotation info to a track-specific file
+            annotations = {
+                f.frame_hash: {
+                    "bbox": f.bbox.cxcywhn,
+                    "behaviour": track.behaviour_history.get(f.frame_hash),
+                }
+                for f in track._frames
+                if f
+            }
             track_filename = f"track-{self.manager_id}-{track.track_id}.json"
             with open(os.path.join(METADATA_DIR, track_filename), "w") as f:
-                json.dump(bbox_coords, f, indent=4)
+                json.dump(annotations, f, indent=4)
 
             # export full track data for behaviour model training
             if SYSTEM != "Linux" and isinstance(cam, Cv2Camera):
