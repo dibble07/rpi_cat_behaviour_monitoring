@@ -86,9 +86,13 @@ stateDiagram-v2
     STALE --> EXPIRED: Timeout
 ```
 
-#### Cat Classification
+#### Cat Identification
 
-After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
+After updating, each TrackFrame is identified as being one of the possible cats using a classifier model on top of the existing embeddings. The history of identities across the Track is aggregated using a confidence-weighted mean. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
+
+#### Behaviour Classification
+
+After updating, each TrackFrame is classified as exhibiting using one of the possible behaviours using a video classifier model on top of the existing embeddings. This behaviour class can change over time so it is calculated at each frame and not aggregated.
 
 #### Recording
 
@@ -185,9 +189,11 @@ The web player provides a web-based interface for viewing recorded tracks. Acces
 
 | Directory | Purpose |
 |---|---|
-| **classification_data/** | Training data for cat identification and behaviour classification: contains labels and train/validation splits |
-| **coco_metadata/** | COCO object detection training data configuration files: base and variant configurations |
-| **finetune_data/** | Fine-tuning dataset with images and label annotations |
-| **finetune_data_cropped/** | Pre-processed version of fine-tuning data |
+| **identification_dataset/** | Training data for cat identification |
+| **detection_core_dataset/** | COCO object detection training data configuration files: base and variant configurations |
+| **detection_finetune_dataset/** | Fine-tuning dataset with images and label annotations |
+| **detection_finetune_cropped_dataset/** | Pre-processed version of fine-tuning data |
 | **mock_inputs/** | Raw video for development camera mocking |
-| **raw_video/** | Raw video files for offline processing and testing |
+| **mock_inputs_long/** | Long (~5 mins) raw video for development camera mocking |
+| **raw_behaviour/** | Raw video files for to train behaviour model |
+| **raw_detection_identification/** | Raw video files for to train detection and identification models |

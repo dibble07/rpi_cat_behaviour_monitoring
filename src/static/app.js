@@ -1,5 +1,9 @@
 let sort = { by: 'track_start_dt_tm', dir: 'desc' };
+const LEAD_IN_S = 2;
 const cat = document.getElementById('filterCatId');
+const behaviour = document.getElementById('filterBehaviour');
+const behaviourOptions = document.getElementById('behaviourOptions');
+const behaviourFilterSummary = document.getElementById('behaviourFilterSummary');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
 const tbody = document.getElementById('tracksBody');
@@ -14,6 +18,16 @@ let annotationData = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     cat.addEventListener('change', update);
+    behaviourOptions.addEventListener('change', update);
+    document.addEventListener('click', event => {
+        if (!behaviour.contains(event.target)) behaviour.open = false;
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && behaviour.open) {
+            behaviour.open = false;
+            behaviour.querySelector('summary').focus();
+        }
+    });
     after.addEventListener('change', update);
     before.addEventListener('change', update);
     document.querySelectorAll('th.sortable').forEach(th => {
@@ -34,6 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function update() {
+    const selected = behaviourOptions.querySelectorAll('input:checked');
+    behaviourFilterSummary.textContent = selected.length ? `${selected.length} selected` : 'All Behaviours';
     const p = new URLSearchParams({
         sort_by: sort.by,
         sort_dir: sort.dir,
@@ -41,23 +57,19 @@ async function update() {
         filter_track_time_after: after.value,
         filter_track_time_before: before.value,
     });
-    const tracks = await fetch(`/api/tracks?${p}`).then(r => r.json());
-    
-    const cats = [...new Set(tracks.map(t => t.cat_id))];
-    const c = cat.value;
-    cat.innerHTML = '<option value="">All Cats</option>';
-    cats.forEach(x => {
-        const o = document.createElement('option');
-        o.value = x;
-        o.textContent = x;
-        cat.appendChild(o);
-    });
-    cat.value = c;
+    selected.forEach(checkbox => p.append('filter_behaviour', checkbox.value));
+    const { tracks, filters } = await fetch(`/api/tracks?${p}`).then(r => r.json());
+    const selectedCat = cat.value;
+    cat.replaceChildren(new Option('All Cats', ''), ...filters.cats.map(value => new Option(value, value)));
+    cat.value = selectedCat;
+    updateBehaviourOptions(filters.behaviours);
     
     tbody.innerHTML = '';
     tracks.forEach(t => {
         const row = tbody.insertRow();
-        row.innerHTML = `<td>${new Date(t.track_start_dt_tm).toLocaleString()}</td><td>${t.cat_id}</td><td>${formatDuration(t.duration_s)}</td>`;
+        [new Date(t.track_start_dt_tm).toLocaleString(), t.cat_id,
+            t.behaviours.join(', ') || '\u2014', formatDuration(t.duration_s)]
+            .forEach(value => { row.insertCell().textContent = value; });
         if (!t.files_ready) row.classList.add('not-ready');
         row.onclick = () => {
             document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('active'));
@@ -66,7 +78,7 @@ async function update() {
             metadataTrackStart.textContent = formatTrackTime(t.track_elapsed_start_s);
             metadataTrackStop.textContent = formatTrackTime(t.track_elapsed_end_s);
             video.src = `/video/${t.video_name}`;
-            video.currentTime = t.track_elapsed_start_s;
+            video.currentTime = Math.max(0, t.track_elapsed_start_s - LEAD_IN_S);
             video.play();
             annotationData = null;
             fetch(`/api/tracks/${t.manager_id}/${t.track_id}/annotations`)
@@ -79,6 +91,23 @@ async function update() {
         th.textContent = th.textContent.replace(/\s[↑↓]$/, '');
         if (th.dataset.field === sort.by) th.textContent += ` ${sort.dir === 'asc' ? '↑' : '↓'}`;
     });
+}
+
+function updateBehaviourOptions(values) {
+    const existing = behaviourOptions.querySelectorAll('input');
+    if (existing.length === values.length && values.every((value, index) => value === existing[index].value)) return;
+    const selected = Array.from(existing).filter(checkbox => checkbox.checked).map(checkbox => checkbox.value);
+    behaviourOptions.replaceChildren(...values.map(value => {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = value;
+        checkbox.checked = selected.includes(value);
+        const text = document.createElement('span');
+        text.textContent = value;
+        label.append(checkbox, text);
+        return label;
+    }));
 }
 
 function formatDuration(seconds) {
@@ -112,7 +141,7 @@ function drawOverlay(currentTime) {
     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     if (!annotationData || !annotationData.fps) return;
 
-    const { fps, history_duration_s, frames, colour } = annotationData;
+    const { fps, history_duration_s, bboxes, colour, behaviours } = annotationData;
     const index = Math.round(currentTime * fps);
     const historyFrames = Math.round(history_duration_s * fps);
     const strokeColour = `rgb(${colour.join(',')})`;
@@ -126,7 +155,7 @@ function drawOverlay(currentTime) {
     overlayCtx.lineWidth = trailThickness;
     let prevPoint = null;
     for (let i = Math.max(0, index - historyFrames); i <= index; i++) {
-        const bbox = frames[i];
+        const bbox = bboxes[i];
         if (!bbox) {
             prevPoint = null;
             continue;
@@ -145,11 +174,28 @@ function drawOverlay(currentTime) {
     }
 
     // current bounding box
-    const currentBbox = frames[index];
+    const currentBbox = bboxes[index];
     if (currentBbox) {
         const { x1, y1, x2, y2 } = toPixel(currentBbox);
         overlayCtx.lineWidth = boxThickness;
         overlayCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        const label = behaviours[index];
+        if (label) {
+            const displayWidth = overlayCanvas.getBoundingClientRect().width || overlayCanvas.width;
+            const fontSize = Math.max(11 * overlayCanvas.width / displayWidth, dim / 50);
+            const padding = fontSize / 3;
+            overlayCtx.font = `600 ${fontSize}px sans-serif`;
+            overlayCtx.textBaseline = 'top';
+            const labelWidth = Math.min(overlayCtx.measureText(label).width + padding * 2, overlayCanvas.width);
+            const labelHeight = fontSize + padding * 2;
+            const labelX = Math.max(0, Math.min(x1, overlayCanvas.width - labelWidth));
+            const labelY = Math.max(0, y1 - labelHeight - boxThickness);
+            overlayCtx.fillStyle = strokeColour;
+            overlayCtx.fillRect(labelX, labelY, labelWidth, labelHeight);
+            const brightness = colour[0] * 0.299 + colour[1] * 0.587 + colour[2] * 0.114;
+            overlayCtx.fillStyle = brightness >= 150 ? '#000' : '#fff';
+            overlayCtx.fillText(label, labelX + padding, labelY + padding, labelWidth - padding * 2);
+        }
     }
 }
 

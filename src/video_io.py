@@ -21,7 +21,7 @@ class Cv2Camera:
     def __init__(self, video_path: Optional[str] = None):
         # initialise camera object
         self.video_path = (
-            random.choice(utils.get_video_paths(raw_video=False))
+            random.choice(utils.get_video_paths(mock_inputs=True))
             if video_path is None
             else video_path
         )
@@ -37,30 +37,13 @@ class Cv2Camera:
                 f"Camera resolution ({width} x {height}) does not match target ({settings.FRAME_WIDTH}x{settings.FRAME_HEIGHT})"
             )
 
-        # buffer variables for final frame when video ends
-        self._buffer_frames = int(
-            max(settings.BUFFER_DUR, settings.TRACK_STALE_DUR) * settings.FPS
-        )
-        self._last_frame = None
-        self._buffer_count = 0
-
         logger.info("Camera object initialised")
 
     def __call__(self) -> Optional[np.ndarray]:
         # capture frame from camera
         success, frame = self.cam.read()
-
-        # handle video end with buffering
         if not success:
-            if self._buffer_count < self._buffer_frames:
-                self._buffer_count += 1
-                logger.info(
-                    f"Buffering last frame ({self._buffer_count}/{self._buffer_frames})"
-                )
-                return np.clip(self._last_frame - self._buffer_count, 0, 255)
-            else:
-                logger.info("Buffer period expired, returning None")
-                return None
+            return None
 
         # resize to settings specified resolution
         if self._resize and frame is not None:
@@ -91,6 +74,7 @@ class Picamera2Camera:
             controls={
                 "FrameRate": settings.FPS,
                 "AeEnable": True,
+                "ExposureTime": 2000,
                 "AeMeteringMode": 2,
                 "AwbEnable": True,
                 "HdrMode": 4,

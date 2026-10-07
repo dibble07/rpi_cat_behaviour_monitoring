@@ -16,7 +16,7 @@ def capture_thread() -> None:
 
     # set capture constants
     frame_period = 1 / settings.FPS
-    frame_period = frame_period / 4 if SYSTEM == "Darwin" else frame_period
+    frame_period = frame_period / 8 if SYSTEM == "Darwin" else frame_period
 
     while not shutdown_event.is_set():
 

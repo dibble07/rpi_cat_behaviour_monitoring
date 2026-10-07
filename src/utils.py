@@ -1,14 +1,54 @@
+import hashlib
 import logging
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional, Tuple
 
+import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Path]:
+def blur_image(image: np.ndarray) -> np.ndarray:
+    """Create a fixed-size resized grayscale blur of an image."""
+    return cv2.GaussianBlur(
+        cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (640, 480)), (5, 5), 0
+    )
+
+
+def hash_image(image: np.ndarray) -> str:
+    """Return a short content hash for an image array."""
+    if image.ndim != 2:
+        image = blur_image(image)
+    return hashlib.md5(image.tobytes()).hexdigest()[:8]
+
+
+@lru_cache(maxsize=None)
+def _get_video_hashes(path: str) -> tuple[str, ...]:
+    capture = cv2.VideoCapture(path)
+    hashes = []
+    while True:
+        success, image = capture.read()
+        if not success:
+            break
+        hashes.append(hash_image(image))
+    capture.release()
+    return tuple(hashes)
+
+
+def get_video_hashes(video_path: str | Path) -> tuple[str, ...]:
+    """Return cached per-frame hashes for every decodable frame of a video."""
+    return _get_video_hashes(str(Path(video_path).resolve()))
+
+
+def get_video_paths(
+    mock_inputs: bool = False,
+    mock_inputs_long: bool = False,
+    raw_behaviour: bool = False,
+    raw_detection_identification: bool = False,
+) -> list[Path]:
     """Return video paths from selected dataset sources"""
 
     # identify source directories
@@ -16,8 +56,12 @@ def get_video_paths(mock_inputs: bool = True, raw_video: bool = True) -> list[Pa
     source_dirs = []
     if mock_inputs:
         source_dirs.append(datasets_root / "mock_inputs")
-    if raw_video:
-        source_dirs.append(datasets_root / "raw_video")
+    if mock_inputs_long:
+        source_dirs.append(datasets_root / "mock_inputs_long")
+    if raw_behaviour:
+        source_dirs.append(datasets_root / "raw_behaviour")
+    if raw_detection_identification:
+        source_dirs.append(datasets_root / "raw_detection_identification")
     if not source_dirs:
         raise FileNotFoundError(f"No source directories found for selected sources")
 

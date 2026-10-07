@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import IntEnum, auto
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
@@ -24,12 +26,15 @@ from config import (
     TRACK_SUMMARIES_PATH,
     settings,
 )
-from video_io import FfmpegWriter
+from shared import cam
+from video_io import Cv2Camera, FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
 
-_model = joblib.load(Path("models") / "classification_best_model.joblib")
+CAT_CLASSIFICATION_MODEL = joblib.load(
+    Path("models") / "classification_best_model.joblib"
+)
 
 
 def classify_embedding(embedding: np.ndarray) -> dict:
@@ -41,11 +46,11 @@ def classify_embedding(embedding: np.ndarray) -> dict:
         embedding = embedding.reshape(1, -1)
 
     # get probabilities and index
-    proba = _model.predict_proba(embedding)[0]
+    proba = CAT_CLASSIFICATION_MODEL.predict_proba(embedding)[0]
     cat_id = int(np.argmax(proba))
 
     return {
-        "cat_name": _model.classes_[cat_id],
+        "cat_name": CAT_CLASSIFICATION_MODEL.classes_[cat_id],
         "confidence": float(proba[cat_id]),
         "proba": proba,
     }
@@ -89,11 +94,59 @@ class VideoHashMap:
         return self._videos[video_name]["hashes"]  # type: ignore[return-value]
 
 
+_embedding_model_path = Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx"
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
-    Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx",
+    _embedding_model_path,
     providers=["CPUExecutionProvider"],
 )
 _embedding_input_name = _embedding_session.get_inputs()[0].name
+
+
+@lru_cache(maxsize=1)
+def embedding_model_sha256() -> str:
+    return hashlib.sha256(_embedding_model_path.read_bytes()).hexdigest()
+
+
+@lru_cache(maxsize=2)
+def behaviour_session(model_path: str) -> tuple[ort.InferenceSession, dict]:
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    session = ort.InferenceSession(
+        model_path, sess_options=options, providers=["CPUExecutionProvider"]
+    )
+    metadata = session.get_modelmeta().custom_metadata_map
+    config = json.loads(metadata["behaviour_config"])
+    if config["embedding_model_sha256"] != embedding_model_sha256():
+        raise ValueError("Behaviour model requires a different embedding model")
+    return session, config
+
+
+def classify_behaviour(
+    embedding: np.ndarray,
+    hidden_state: np.ndarray | None = None,
+    model_path: str | Path = Path("models") / f"{settings.MODEL_BEHAVIOUR_PATH}.onnx",
+) -> dict:
+    """Update one frame; retain next_hidden_state per track, or omit state to reset."""
+    session, config = behaviour_session(str(Path(model_path).resolve()))
+    if hidden_state is None:
+        hidden_state = np.zeros(config["hidden_channels"], dtype=np.float32)
+
+    logits, next_state = session.run(
+        ["logits", "next_hidden_state"],
+        {
+            "embedding": embedding[None],
+            "hidden_state": hidden_state[None],
+        },
+    )
+    probabilities = np.exp(logits[0] - logits[0].max())
+    probabilities /= probabilities.sum()
+    index = int(probabilities.argmax())
+    return {
+        "behaviour": config["behaviours"][index],
+        "confidence": float(probabilities[index]),
+        "next_hidden_state": next_state[0],
+    }
 
 
 def embed_image(image: np.ndarray) -> np.ndarray:
@@ -210,6 +263,9 @@ class TrackState(IntEnum):
     STALE = auto()
     EXPIRED = auto()
 
+    def __bool__(self) -> bool:
+        return self is not TrackState.EXPIRED
+
 
 @dataclass(slots=True)
 class TrackSummary:
@@ -223,14 +279,17 @@ class TrackSummary:
     last_detection_hash: str
     last_frame: Optional[TrackFrame]
     last_valid_frame: TrackFrame
+    object_name: str
+    object_valid: bool
     state: TrackState
     estimated_bbox: utils.Bbox
     history: list[Optional[tuple[int, int]]]
     confirmed: bool = False
     cat_name: Optional[str] = None
     cat_conf: Optional[float] = None
-    cat_name_entropy: Optional[str] = None
-    cat_conf_entropy: Optional[float] = None
+
+    def __bool__(self) -> bool:
+        return self.confirmed and bool(self.state)
 
 
 class Track:
@@ -242,20 +301,25 @@ class Track:
         self.track_id = track_id
         self._first_detection_index = frame_index
         self._first_detection_hash = frame_hash
-        self._frames: list[Optional[TrackFrame]] = [None] * frame_index
+        self._frames: list[Optional[TrackFrame]] = []
         self._frame_hash = frame_hash
         self._expired_at_frame_count: Optional[int] = None
+        self.behaviour_history: dict[str, str] = {}
+        self._behaviour_hidden_state: np.ndarray | None = None
         self.append(frame)
 
     def __len__(self) -> int:
         return self.summary.frame_count
+
+    def __bool__(self) -> bool:
+        return bool(self.summary)
 
     @property
     def summary(self) -> TrackSummary:
         return self._summary
 
     def score(self, candidate: TrackFrame) -> float:
-        if candidate.object_name == self.summary.last_valid_frame.object_name:
+        if candidate.object_name == self.summary.object_name:
             # bounding box
             iou = centroid_sim = size_sim = 0.0
             for ref_bbox in [
@@ -279,7 +343,7 @@ class Track:
             )
 
             # visual similarity
-            if self.summary.last_valid_frame.object_name == "cat":
+            if self.summary.object_name == "cat":
                 valid_frames = [f for f in self._frames if f is not None]
                 ent_wgt = utils.entropy_weights(
                     np.stack([f.cat_name_proba for f in valid_frames])
@@ -297,9 +361,7 @@ class Track:
                 self.summary.frame_count - self.summary.latest_detection_index - 1
             )
             recency_score = np.exp(-latest_frame_age / settings.FPS)
-            track_age = (
-                self.summary.latest_detection_index - self.summary.first_detection_index
-            )
+            track_age = self.summary.latest_detection_index
             age_score = 1 - np.exp(-track_age / settings.FPS)
 
             # aggregate component scores
@@ -317,6 +379,13 @@ class Track:
             return -1.0
 
     def append(self, frame: Optional[TrackFrame]) -> None:
+        if frame is not None and frame.object_name == "cat":
+            embedding = frame.roi_embedding
+            start = datetime.now()
+            result = classify_behaviour(embedding, self._behaviour_hidden_state)
+            self._behaviour_hidden_state = result["next_hidden_state"]
+            self.behaviour_history[frame.frame_hash] = result["behaviour"]
+            utils.log_timing(logger, "Behaviour", start, frame.frame_hash)
         self._frames.append(frame)
         self._update_summary()
 
@@ -365,17 +434,13 @@ class Track:
 
         # identify simple info about track
         frame_count = len(self._frames)
-        history_frames = self._frames[
-            -int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS)) :
-        ]
+        history_duration = int(np.ceil(settings.TRACK_HISTORY_DUR * settings.FPS))
+        history_frames = self._frames[-history_duration:]
         history = [f.bbox.cxcywh[:2] if f is not None else None for f in history_frames]
 
         # identify info about end of track
-        for i, frame in enumerate(reversed(self._frames)):
-            if frame is not None:
-                last_valid_frame = frame
-                latest_detection_index = frame_count - i - 1
-                break
+        latest_detection_index = max(i for i, f in enumerate(self._frames) if f)
+        last_valid_frame = self._frames[latest_detection_index]
 
         # calculate state transitions
         match getattr(prev_summary, "state", None):
@@ -383,11 +448,7 @@ class Track:
                 state = TrackState.NEW
             case TrackState.NEW:
                 new_frame_count = int(np.ceil(settings.FPS * settings.TRACK_NEW_DUR))
-                frames_init = self._frames[
-                    self._first_detection_index : self._first_detection_index
-                    + new_frame_count
-                ]
-                frames_init_valid = [f for f in frames_init if f is not None]
+                frames_init_valid = [f for f in self._frames[:new_frame_count] if f]
                 if (
                     len(frames_init_valid) > new_frame_count / 2
                     and sum(
@@ -399,7 +460,7 @@ class Track:
                     > new_frame_count / 4
                 ):
                     state = TrackState.ACTIVE
-                elif self._first_detection_index + new_frame_count >= frame_count:
+                elif new_frame_count >= frame_count:
                     state = TrackState.NEW
                 else:
                     state = TrackState.EXPIRED
@@ -427,13 +488,13 @@ class Track:
         }
 
         # aggregate cat name based weighted by entropy
-        if last_frame is not None:
+        if last_frame:
             if last_frame.object_name == "cat":
                 probs = np.stack([f.cat_name_proba for f in self._frames if f])
                 ent_wgt = utils.entropy_weights(probs)
                 probs_avg = np.average(probs, axis=0, weights=ent_wgt)
                 cat_id = int(np.argmax(probs_avg))
-                cat_name = _model.classes_[cat_id]
+                cat_name = CAT_CLASSIFICATION_MODEL.classes_[cat_id]
                 cat_conf = probs_avg[cat_id]
             else:
                 cat_name = None
@@ -442,10 +503,8 @@ class Track:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
 
-        if state == TrackState.EXPIRED and prev_summary.state != TrackState.EXPIRED:
+        if not state and prev_summary.state:
             self._expired_at_frame_count = frame_count
-        if state in {TrackState.ACTIVE, TrackState.STALE}:
-            self._confirmed = True
 
         frame_wh = last_valid_frame.frame_wh
         self._summary = TrackSummary(
@@ -455,6 +514,10 @@ class Track:
             first_detection_hash=self._first_detection_hash,
             last_frame=last_frame,
             last_valid_frame=last_valid_frame,
+            object_name=last_valid_frame.object_name,
+            object_valid=(
+                last_valid_frame.object_name not in settings.EXCLUDED_OBJECTS
+            ),
             latest_detection_index=latest_detection_index,
             last_detection_hash=last_valid_frame.frame_hash,
             history=history,
@@ -514,7 +577,8 @@ class TrackManager:
                 "track_elapsed_start_s": start_offset_s,
                 "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
-                "object_name": track.summary.last_valid_frame.object_name,
+                "object_name": track.summary.object_name,
+                "behaviours": list(set(track.behaviour_history.values())),
                 "track_start_dt_tm": (
                     start_match["video_start_dt_tm"]  # type: ignore[operator]
                     + timedelta(seconds=start_offset_s)
@@ -526,18 +590,47 @@ class TrackManager:
             with open(TRACK_SUMMARIES_PATH, "a") as f:
                 f.write(json.dumps(row, default=str) + "\n")
 
-            # export per-frame bbox coords to a track-specific file
-            bbox_coords = {f.frame_hash: f.bbox.cxcywhn for f in track._frames if f}
+            # export per-frame annotation info to a track-specific file
+            annotations = {
+                f.frame_hash: {
+                    "bbox": f.bbox.cxcywhn,
+                    "behaviour": track.behaviour_history.get(f.frame_hash),
+                }
+                for f in track._frames
+                if f
+            }
             track_filename = f"track-{self.manager_id}-{track.track_id}.json"
             with open(os.path.join(METADATA_DIR, track_filename), "w") as f:
-                json.dump(bbox_coords, f, indent=4)
+                json.dump(annotations, f, indent=4)
+
+            # export full track data for behaviour model training
+            if SYSTEM != "Linux" and isinstance(cam, Cv2Camera):
+                latest_detection_index = track.summary.latest_detection_index
+                frames = track._frames[: latest_detection_index + 1]
+                frame_hashes = [f.frame_hash if f else None for f in frames]
+                images = {f.frame_hash: f.roi for f in frames if f}
+                embeddings = {f.frame_hash: f.roi_embedding for f in frames if f}
+                full_track = {
+                    "video_path": cam.video_path,
+                    "cat_id": track.summary.cat_name,
+                    "frame_hashes": frame_hashes,
+                    "images": images,
+                    "embeddings": embeddings,
+                    "embedding_model_sha256": embedding_model_sha256(),
+                }
+                joblib.dump(
+                    full_track,
+                    os.path.join(
+                        METADATA_DIR, track_filename.replace(".json", ".joblib")
+                    ),
+                )
         else:
             logger.warning(
-                f"Track {track.track_id} could not be exported because its frames are not in the video hash map."
+                f"Track {track.track_id} has frames that are not in the video hash map."
             )
 
     def __len__(self) -> int:
-        lengths = {len(track) for track in self.tracks}
+        lengths = {len(t) + t.summary.first_detection_index for t in self.tracks}
         match len(lengths):
             case 0:
                 return 0
@@ -550,9 +643,7 @@ class TrackManager:
 
     @property
     def non_expired_tracks(self) -> list[Track]:
-        return [
-            track for track in self.tracks if track.summary.state < TrackState.EXPIRED
-        ]
+        return [track for track in self.tracks if track.summary.state]
 
     def get_track(self, track_id: int) -> Track:
         matches = [track for track in self.tracks if track.track_id == track_id]
@@ -649,7 +740,7 @@ class TrackManager:
                 tracks_to_delete = [
                     t
                     for t in self.tracks
-                    if t.summary.state >= TrackState.EXPIRED
+                    if not t.summary.state
                     and t.summary.frame_count - t._expired_at_frame_count
                     > np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
                 ]
@@ -660,11 +751,7 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
-            if (
-                track.summary.confirmed
-                and track.summary.last_valid_frame.object_name
-                not in settings.EXCLUDED_OBJECTS
-            ):
+            if track.summary.confirmed and track.summary.object_valid:
                 self._export_track_summary(track, video_hash_map)
             self.tracks.remove(track)
 
