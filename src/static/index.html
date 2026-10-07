@@ -22,6 +22,13 @@
                         </select>
                     </div>
                     <div class="filter-group">
+                        <label>Behaviour</label>
+                        <details id="filterBehaviour" class="behaviour-filter">
+                            <summary class="filter-select" aria-label="Filter behaviours"><span id="behaviourFilterSummary">All Behaviours</span></summary>
+                            <div id="behaviourOptions" class="behaviour-options" role="group" aria-label="Behaviours"></div>
+                        </details>
+                    </div>
+                    <div class="filter-group">
                         <label>Track Time After</label>
                         <input type="datetime-local" id="filterTrackTimeAfter" class="filter-input">
                     </div>
@@ -36,6 +43,7 @@
                         <tr class="header-row">
                             <th class="sortable" data-field="track_start_dt_tm">Timestamp</th>
                             <th class="sortable" data-field="cat_id">Name</th>
+                            <th>Behaviours</th>
                             <th class="sortable" data-field="duration_s">Duration</th>
                         </tr>
                     </thead>

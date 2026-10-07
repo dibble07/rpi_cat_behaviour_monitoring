@@ -85,6 +85,10 @@ class TrackSummaryStore:
             new_df["track_start_dt_tm"] = pd.to_datetime(
                 new_df["track_start_dt_tm"]
             ).dt.tz_localize(None)
+            new_df["behaviours"] = new_df["behaviours"].apply(sorted)
+            new_df["duration_s"] = (
+                new_df["track_elapsed_end_s"] - new_df["track_elapsed_start_s"]
+            )
             new_df["files_ready"] = new_df.apply(self._files_ready, axis=1)
             self._df = pd.concat([self._df, new_df], ignore_index=True)
 
@@ -130,9 +134,16 @@ def app_js():
 @app.route("/api/tracks")
 def get_tracks():
     df = track_summary_store.get()
+    filters = {
+        "cats": sorted(df["cat_id"].dropna().unique().tolist()),
+        "behaviours": sorted({b for v in df["behaviours"] for b in v}),
+    }
 
     if cat := request.args.get("filter_cat_id", ""):
         df = df.loc[df.get("cat_id") == cat]
+
+    if behaviours := set(request.args.getlist("filter_behaviour")):
+        df = df.loc[df["behaviours"].apply(lambda v: bool(behaviours.intersection(v)))]
 
     if after := request.args.get("filter_track_time_after", ""):
         df = df.loc[df["track_start_dt_tm"] >= pd.Timestamp(after).tz_localize(None)]
@@ -140,12 +151,11 @@ def get_tracks():
     if before := request.args.get("filter_track_time_before", ""):
         df = df.loc[df["track_start_dt_tm"] <= pd.Timestamp(before).tz_localize(None)]
 
-    df["duration_s"] = df["track_elapsed_end_s"] - df["track_elapsed_start_s"]
     sort_by = request.args.get("sort_by", "track_start_dt_tm")
     reverse = request.args.get("sort_dir", "desc") == "desc"
     df = df.sort_values(by=sort_by, ascending=not reverse)
     df["track_start_dt_tm"] = df["track_start_dt_tm"].apply(lambda ts: ts.isoformat())
-    return jsonify(df.to_dict(orient="records"))
+    return jsonify({"tracks": df.to_dict(orient="records"), "filters": filters})
 
 
 @app.route("/video/<filename>")
@@ -176,11 +186,12 @@ def get_track_annotations(manager_id, track_id):
         abort(404)
     hashes = json.loads(hashes_path.read_text())
 
-    # load bbox coordinates
-    bbox_path = Path(METADATA_DIR) / f"track-{manager_id}-{track_id}.json"
-    if not bbox_path.exists():
+    # load annotations
+    annotations_path = Path(METADATA_DIR) / f"track-{manager_id}-{track_id}.json"
+    if not annotations_path.exists():
         abort(404)
-    boxes = json.loads(bbox_path.read_text())
+    annotations = json.loads(annotations_path.read_text())
+    frame_annotations = [annotations.get(frame_hash) for frame_hash in hashes]
 
     # annotation colour based on cat id or object
     colour = CAT_COLOUR_MAP.get(
@@ -191,7 +202,8 @@ def get_track_annotations(manager_id, track_id):
         {
             "fps": get_video_fps(str(video_path)),
             "history_duration_s": settings.TRACK_HISTORY_DUR,
-            "frames": [boxes.get(h) for h in hashes],
+            "bboxes": [a["bbox"] if a else None for a in frame_annotations],
+            "behaviours": [a["behaviour"] if a else None for a in frame_annotations],
             "colour": list(reversed(colour)),
         }
     )

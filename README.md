@@ -86,9 +86,13 @@ stateDiagram-v2
     STALE --> EXPIRED: Timeout
 ```
 
-#### Cat Classification
+#### Cat Identification
 
-After updating, each Track is re-classified using a confidence-weighted history of appearance embeddings from recent detections. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
+After updating, each TrackFrame is identified as being one of the possible cats using a classifier model on top of the existing embeddings. The history of identities across the Track is aggregated using a confidence-weighted mean. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
+
+#### Behaviour Classification
+
+After updating, each TrackFrame is classified as exhibiting using one of the possible behaviours using a video classifier model on top of the existing embeddings. This behaviour class can change over time so it is calculated at each frame and not aggregated.
 
 #### Recording
 
