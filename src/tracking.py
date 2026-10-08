@@ -304,7 +304,7 @@ class Track:
                 self.summary.last_valid_frame.bbox,
                 self.summary.estimated_bbox,
             ]:
-                iou = max(iou, utils.bbox_iou(ref_bbox, candidate.bbox))
+                iou = max(iou, utils.bbox_overlap(ref_bbox, candidate.bbox)[0])
                 a, b = ref_bbox.cxcywhn, candidate.bbox.cxcywhn
                 centroid_sim = max(
                     centroid_sim,

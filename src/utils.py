@@ -259,8 +259,8 @@ def entropy_weights(probs: np.ndarray) -> np.ndarray:
     return np.ones_like(wgt) if wgt.sum() == 0 else wgt
 
 
-def bbox_iou(box_a: Bbox, box_b: Bbox) -> float:
-    """Calculate intersection-over-union for two xyxy boxes"""
+def bbox_overlap(box_a: Bbox, box_b: Bbox) -> tuple[float, float]:
+    """Calculate intersection-over-union and intersection-over-minimum area"""
 
     # unpack box coords
     ax1, ay1, ax2, ay2 = box_a.xyxy
@@ -277,12 +277,15 @@ def bbox_iou(box_a: Bbox, box_b: Bbox) -> float:
     area_b = (bx2 - bx1) * (by2 - by1)
     inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
     union_area = area_a + area_b - inter_area
+    min_area = min(area_a, area_b)
 
-    return inter_area / union_area
+    return inter_area / union_area, inter_area / min_area
 
 
-def nms_boxes(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float) -> list:
-    """Return confidence-ranked indices after IoU NMS on one class of xyxy boxes"""
+def nms_boxes(
+    boxes: np.ndarray, scores: np.ndarray, iou_threshold: float, iom_threshold: float
+) -> list:
+    """Return confidence-ranked indices after IoU/IoM NMS on one class of xyxy boxes"""
     if len(boxes) == 0:
         return []
 
@@ -299,9 +302,9 @@ def nms_boxes(boxes: np.ndarray, scores: np.ndarray, iou_threshold: float) -> li
         remaining = order[1:]
         if not remaining.size:
             break
-        iou = np.asarray(
-            [bbox_iou(bboxes[selected], bboxes[index]) for index in remaining]
-        )
-        order = remaining[iou <= iou_threshold]
+        iou, iom = np.asarray(
+            [bbox_overlap(bboxes[selected], bboxes[index]) for index in remaining]
+        ).T
+        order = remaining[(iou <= iou_threshold) & (iom < iom_threshold)]
 
     return keep
