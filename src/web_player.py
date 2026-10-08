@@ -38,6 +38,38 @@ logger = logging.getLogger(__name__)
 HOST, PORT = "127.0.0.1", 5000
 
 
+class TrainingVideoStore:
+    """Persists the set of video filenames selected for training"""
+
+    def __init__(self) -> None:
+        self._path = Path(METADATA_DIR) / "training_videos.json"
+        self._videos = (
+            set(json.loads(self._path.read_text())) if self._path.exists() else set()
+        )
+
+    def get(self) -> set[str]:
+        return self._videos
+
+    def update(self, video_name: str, selected: bool) -> set[str]:
+        if selected:
+            self._videos.add(video_name)
+        else:
+            self._videos.discard(video_name)
+        self._write()
+        return self._videos
+
+    def clear(self) -> set[str]:
+        self._videos.clear()
+        self._write()
+        return self._videos
+
+    def _write(self) -> None:
+        self._path.write_text(json.dumps(list(self._videos), indent=2) + "\n")
+
+
+training_video_store = TrainingVideoStore()
+
+
 def get_video_file_path(filename):
     if (path := Path(OUTPUT_DIR) / filename).exists():
         return path.resolve()
@@ -131,6 +163,9 @@ def app_js():
 @app.route("/api/tracks")
 def get_tracks():
     df = track_summary_store.get()
+    training_videos = training_video_store.get()
+    df = df.copy()
+    df["is_training_video"] = df["video_name"].isin(training_videos)
     filters = {
         "cats": sorted(df["cat_id"].dropna().unique().tolist()),
         "behaviours": sorted({b for v in df["behaviours"] for b in v}),
@@ -142,6 +177,14 @@ def get_tracks():
     if behaviours := set(request.args.getlist("filter_behaviour")):
         df = df.loc[df["behaviours"].apply(lambda v: bool(behaviours.intersection(v)))]
 
+    match request.args.get("filter_training_video"):
+        case "training":
+            df = df.loc[df["is_training_video"]]
+        case "not_training":
+            df = df.loc[~df["is_training_video"]]
+        case None:
+            pass
+
     if after := request.args.get("filter_track_time_after", ""):
         df = df.loc[df["track_start_dt_tm"] >= pd.Timestamp(after).tz_localize(None)]
 
@@ -152,7 +195,30 @@ def get_tracks():
     reverse = request.args.get("sort_dir", "desc") == "desc"
     df = df.sort_values(by=sort_by, ascending=not reverse)
     df["track_start_dt_tm"] = df["track_start_dt_tm"].apply(lambda ts: ts.isoformat())
-    return jsonify({"tracks": df.to_dict(orient="records"), "filters": filters})
+    return jsonify(
+        {
+            "tracks": df.to_dict(orient="records"),
+            "filters": filters,
+            "training_videos": list(training_videos),
+        }
+    )
+
+
+@app.route("/api/training-videos", methods=["POST", "DELETE"])
+def update_training_videos():
+    if request.method == "DELETE":
+        return jsonify({"training_videos": list(training_video_store.clear())})
+
+    data = request.get_json(silent=True)
+    return jsonify(
+        {
+            "training_videos": list(
+                training_video_store.update(
+                    data["video_name"], data["is_training_video"]
+                )
+            )
+        }
+    )
 
 
 @app.route("/video/<filename>")
