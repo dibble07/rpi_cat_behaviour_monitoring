@@ -6,6 +6,7 @@ const behaviourOptions = document.getElementById('behaviourOptions');
 const behaviourFilterSummary = document.getElementById('behaviourFilterSummary');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
+const trainingFilter = document.getElementById('filterTrainingVideo');
 const tbody = document.getElementById('tracksBody');
 const video = document.getElementById('videoPlayer');
 const videoWrapper = document.querySelector('.video-wrapper');
@@ -14,7 +15,10 @@ const overlayCtx = overlayCanvas.getContext('2d');
 const metadataVideoName = document.getElementById('metadataVideoName');
 const metadataTrackStart = document.getElementById('metadataTrackStart');
 const metadataTrackStop = document.getElementById('metadataTrackStop');
+const trainingVideoCheckbox = document.getElementById('trainingVideoCheckbox');
+const clearTrainingVideos = document.getElementById('clearTrainingVideos');
 let annotationData = null;
+let currentVideoName = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     cat.addEventListener('change', update);
@@ -30,6 +34,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     after.addEventListener('change', update);
     before.addEventListener('change', update);
+    trainingFilter.addEventListener('change', update);
+    trainingVideoCheckbox.addEventListener('change', updateTrainingVideo);
+    clearTrainingVideos.addEventListener('click', clearAllTrainingVideos);
     document.querySelectorAll('th.sortable').forEach(th => {
         th.addEventListener('click', () => {
             sort.dir = sort.by === th.dataset.field && sort.dir === 'asc' ? 'desc' : 'asc';
@@ -57,8 +64,10 @@ async function update() {
         filter_track_time_after: after.value,
         filter_track_time_before: before.value,
     });
+    if (trainingFilter.value) p.set('filter_training_video', trainingFilter.value);
     selected.forEach(checkbox => p.append('filter_behaviour', checkbox.value));
-    const { tracks, filters } = await fetch(`/api/tracks?${p}`).then(r => r.json());
+    const { tracks, filters, training_videos: trainingVideos } = await fetch(`/api/tracks?${p}`).then(r => r.json());
+    if (currentVideoName) trainingVideoCheckbox.checked = trainingVideos.includes(currentVideoName);
     const selectedCat = cat.value;
     cat.replaceChildren(new Option('All Cats', ''), ...filters.cats.map(value => new Option(value, value)));
     cat.value = selectedCat;
@@ -77,6 +86,9 @@ async function update() {
             metadataVideoName.textContent = t.video_name;
             metadataTrackStart.textContent = formatTrackTime(t.track_elapsed_start_s);
             metadataTrackStop.textContent = formatTrackTime(t.track_elapsed_end_s);
+            currentVideoName = t.video_name;
+            trainingVideoCheckbox.disabled = false;
+            trainingVideoCheckbox.checked = t.is_training_video;
             video.src = `/video/${t.video_name}`;
             video.currentTime = Math.max(0, t.track_elapsed_start_s - LEAD_IN_S);
             video.play();
@@ -91,6 +103,43 @@ async function update() {
         th.textContent = th.textContent.replace(/\s[↑↓]$/, '');
         if (th.dataset.field === sort.by) th.textContent += ` ${sort.dir === 'asc' ? '↑' : '↓'}`;
     });
+}
+
+async function updateTrainingVideo() {
+    if (!currentVideoName) return;
+    try {
+        await fetchJson('/api/training-videos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_name: currentVideoName,
+                is_training_video: trainingVideoCheckbox.checked,
+            }),
+        });
+        await update();
+    } catch (error) {
+        console.error('Unable to update training video selection', error);
+        alert('Unable to update training video selection. See the console for details.');
+        trainingVideoCheckbox.checked = !trainingVideoCheckbox.checked;
+    }
+}
+
+async function clearAllTrainingVideos() {
+    if (!confirm('Clear all training video selections?')) return;
+    try {
+        await fetchJson('/api/training-videos', { method: 'DELETE' });
+        await update();
+    } catch (error) {
+        console.error('Unable to clear training video selections', error);
+        alert('Unable to clear training video selections. See the console for details.');
+    }
+}
+
+async function fetchJson(url, options) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
 }
 
 function updateBehaviourOptions(values) {
@@ -214,4 +263,3 @@ function startOverlayLoop() {
         raf();
     }
 }
-

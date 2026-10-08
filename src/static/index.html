@@ -29,6 +29,14 @@
                         </details>
                     </div>
                     <div class="filter-group">
+                        <label for="filterTrainingVideo">Training video</label>
+                        <select id="filterTrainingVideo" class="filter-select">
+                            <option value="">All Videos</option>
+                            <option value="training">Training Videos</option>
+                            <option value="not_training">Not Training Videos</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
                         <label>Track Time After</label>
                         <input type="datetime-local" id="filterTrackTimeAfter" class="filter-input">
                     </div>
@@ -71,6 +79,13 @@
                         <span class="metadata-label">Stop</span>
                         <span id="metadataTrackStop" class="metadata-value">&mdash;</span>
                     </div>
+                </div>
+                <div class="training-controls">
+                    <label class="training-checkbox">
+                        <input id="trainingVideoCheckbox" type="checkbox" disabled>
+                        <span>Use this video for training</span>
+                    </label>
+                    <button id="clearTrainingVideos" type="button">Clear all training videos</button>
                 </div>
             </div>
         </div>

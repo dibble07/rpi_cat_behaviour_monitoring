@@ -150,7 +150,7 @@ Recorded clips contain the original camera frames. The track browser renders bou
 
 ## Web Interface
 
-The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity and search within specific date ranges, then replay clips with dynamically rendered annotations.
+The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity, behaviour, training-video status, and date range, then replay clips with dynamically rendered annotations. Marking a video for training applies to every track from that video.
 
 ## File Structure
 
