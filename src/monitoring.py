@@ -1,12 +1,11 @@
 import logging
 import os
 import re
-import subprocess
 import time
 
 import psutil
 
-from config import EXT_MOUNT, INT_MOUNT, SYSTEM, settings
+from config import EXT_MOUNT, INT_MOUNT, SYSTEM
 from shared import (
     frame_queue,
     recording_queue_size,

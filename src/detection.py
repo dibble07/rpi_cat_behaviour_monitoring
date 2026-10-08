@@ -52,11 +52,12 @@ class YoloNcnn:
         model: str | Path,
         conf: float = 0.25,
         iou: float = 0.7,
+        iom: float = 0.9,
         max_det: int = 300,
     ) -> None:
         # load static model config and class names
         model_dir = Path(model)
-        self.conf, self.iou, self.max_det = conf, iou, max_det
+        self.conf, self.iou, self.iom, self.max_det = conf, iou, iom, max_det
         metadata = yaml.safe_load((model_dir / "metadata.yaml").read_text()) or {}
         self.names = {int(k): str(v) for k, v in metadata.get("names", {}).items()}
 
@@ -71,11 +72,13 @@ class YoloNcnn:
         imgsz: int | tuple[int, int] = 640,
         conf: Optional[float] = None,
         iou: Optional[float] = None,
+        iom: Optional[float] = None,
         max_det: Optional[int] = None,
         verbose: bool = True,
     ) -> list[SimpleNamespace]:
         eff_conf = self.conf if conf is None else conf
         eff_iou = self.iou if iou is None else iou
+        eff_iom = self.iom if iom is None else iom
         eff_max_det = self.max_det if max_det is None else max_det
 
         h, w = (imgsz, imgsz) if isinstance(imgsz, int) else imgsz
@@ -103,8 +106,8 @@ class YoloNcnn:
         cls_idx = cls_scores.argmax(axis=1)
         cls_conf = cls_scores.max(axis=1)
 
-        # drop invalid/low-confidence
-        valid = np.isfinite(cls_conf) & (cls_conf >= eff_conf)
+        # drop low-confidence
+        valid = cls_conf > eff_conf
         if not np.any(valid):
             return [SimpleNamespace(names=self.names, boxes=[])]
         pred = pred[valid]
@@ -125,21 +128,9 @@ class YoloNcnn:
         keep: list[int] = []
         for cls in np.unique(cls_idx):
             idx = np.where(cls_idx == cls)[0]
-            picked = cv2.dnn.NMSBoxes(
-                np.column_stack(
-                    (
-                        boxes[idx, 0],
-                        boxes[idx, 1],
-                        boxes[idx, 2] - boxes[idx, 0],
-                        boxes[idx, 3] - boxes[idx, 1],
-                    )
-                ).tolist(),
-                cls_conf[idx].tolist(),
-                eff_conf,
-                eff_iou,
-            )
+            picked = utils.nms_boxes(boxes[idx], cls_conf[idx], eff_iou, eff_iom)
             if len(picked):
-                keep.extend(idx[np.asarray(picked).reshape(-1)].tolist())
+                keep.extend(idx[picked].tolist())
         if not keep:
             return [SimpleNamespace(names=self.names, boxes=[])]
 
@@ -174,6 +165,7 @@ _ = _model(
     imgsz=tuple(settings.DETECTION_IMGSZ),
     conf=settings.CONF,
     iou=settings.NMS_IOU_THRESHOLD,
+    iom=settings.NMS_IOM_THRESHOLD,
     max_det=settings.MAX_DETS,
 )
 
@@ -332,6 +324,7 @@ class Frame:
                 imgsz=tuple(settings.DETECTION_IMGSZ),
                 conf=settings.CONF,
                 iou=settings.NMS_IOU_THRESHOLD,
+                iom=settings.NMS_IOM_THRESHOLD,
                 max_det=settings.MAX_DETS,
             )[0]
 

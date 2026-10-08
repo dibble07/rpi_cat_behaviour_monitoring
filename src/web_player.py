@@ -12,10 +12,9 @@ from flask import Flask, abort, jsonify, request, send_file, send_from_directory
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
     CAT_COLOUR_MAP,
-    EXT_OUTPUT_DIR,
-    INT_OUTPUT_DIR,
     METADATA_DIR,
     OBJECT_COLOUR_MAP,
+    OUTPUT_DIR,
     TRACK_SUMMARIES_PATH,
     WEB_PLAYER_LOG_PATH,
     settings,
@@ -40,10 +39,8 @@ HOST, PORT = "127.0.0.1", 5000
 
 
 def get_video_file_path(filename):
-    if (external_path := EXT_OUTPUT_DIR / filename).exists():
-        return external_path
-    elif (internal_path := INT_OUTPUT_DIR / filename).exists():
-        return internal_path
+    if (path := Path(OUTPUT_DIR) / filename).exists():
+        return path.resolve()
     else:
         return None
 

@@ -9,11 +9,13 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-import utils
+from utils import get_video_paths
 
 
 def main() -> int:
-    video_paths = utils.get_video_paths(mock_inputs=True)
+    video_paths = get_video_paths(
+        mock_inputs=True, mock_inputs_long=True, raw_behaviour=True
+    )
     app_path = SRC_ROOT / "app.py"
 
     for index, video_path in enumerate(video_paths, start=1):

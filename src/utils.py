@@ -257,3 +257,54 @@ def entropy_weights(probs: np.ndarray) -> np.ndarray:
     ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1)), axis=1)
     wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
     return np.ones_like(wgt) if wgt.sum() == 0 else wgt
+
+
+def bbox_overlap(box_a: Bbox, box_b: Bbox) -> tuple[float, float]:
+    """Calculate intersection-over-union and intersection-over-minimum area"""
+
+    # unpack box coords
+    ax1, ay1, ax2, ay2 = box_a.xyxy
+    bx1, by1, bx2, by2 = box_b.xyxy
+
+    # determine intersection coord
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    # calculate areas
+    area_a = (ax2 - ax1) * (ay2 - ay1)
+    area_b = (bx2 - bx1) * (by2 - by1)
+    inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+    union_area = area_a + area_b - inter_area
+    min_area = min(area_a, area_b)
+
+    return inter_area / union_area, inter_area / min_area
+
+
+def nms_boxes(
+    boxes: np.ndarray, scores: np.ndarray, iou_threshold: float, iom_threshold: float
+) -> list:
+    """Return confidence-ranked indices after IoU/IoM NMS on one class of xyxy boxes"""
+    if len(boxes) == 0:
+        return []
+
+    sizes = boxes[:, 2:] - boxes[:, :2]
+    valid = (sizes > 0).all(axis=1)
+    indices = np.flatnonzero(valid)
+    order = indices[np.argsort(-scores[indices])]
+    bboxes = [Bbox(xyxy=tuple(box)) for box in boxes]
+    keep = []
+
+    while order.size:
+        selected = order[0]
+        keep.append(selected)
+        remaining = order[1:]
+        if not remaining.size:
+            break
+        iou, iom = np.asarray(
+            [bbox_overlap(bboxes[selected], bboxes[index]) for index in remaining]
+        ).T
+        order = remaining[(iou <= iou_threshold) & (iom < iom_threshold)]
+
+    return keep
