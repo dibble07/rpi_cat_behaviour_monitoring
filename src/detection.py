@@ -103,8 +103,8 @@ class YoloNcnn:
         cls_idx = cls_scores.argmax(axis=1)
         cls_conf = cls_scores.max(axis=1)
 
-        # drop invalid/low-confidence
-        valid = np.isfinite(cls_conf) & (cls_conf >= eff_conf)
+        # drop low-confidence
+        valid = cls_conf > eff_conf
         if not np.any(valid):
             return [SimpleNamespace(names=self.names, boxes=[])]
         pred = pred[valid]
@@ -125,21 +125,9 @@ class YoloNcnn:
         keep: list[int] = []
         for cls in np.unique(cls_idx):
             idx = np.where(cls_idx == cls)[0]
-            picked = cv2.dnn.NMSBoxes(
-                np.column_stack(
-                    (
-                        boxes[idx, 0],
-                        boxes[idx, 1],
-                        boxes[idx, 2] - boxes[idx, 0],
-                        boxes[idx, 3] - boxes[idx, 1],
-                    )
-                ).tolist(),
-                cls_conf[idx].tolist(),
-                eff_conf,
-                eff_iou,
-            )
+            picked = utils.nms_boxes(boxes[idx], cls_conf[idx], eff_iou)
             if len(picked):
-                keep.extend(idx[np.asarray(picked).reshape(-1)].tolist())
+                keep.extend(idx[picked].tolist())
         if not keep:
             return [SimpleNamespace(names=self.names, boxes=[])]
 

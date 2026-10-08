@@ -180,28 +180,6 @@ def embed_image(image: np.ndarray) -> np.ndarray:
     return embedding[0]
 
 
-def bbox_iou(box_a: utils.Bbox, box_b: utils.Bbox) -> float:
-    """Calculate intersection-over-union for two xyxy boxes."""
-
-    # unpack box coords
-    ax1, ay1, ax2, ay2 = box_a.xyxy
-    bx1, by1, bx2, by2 = box_b.xyxy
-
-    # determine intersection coord
-    inter_x1 = max(ax1, bx1)
-    inter_y1 = max(ay1, by1)
-    inter_x2 = min(ax2, bx2)
-    inter_y2 = min(ay2, by2)
-
-    # calculate areas
-    area_a = (ax2 - ax1) * (ay2 - ay1)
-    area_b = (bx2 - bx1) * (by2 - by1)
-    inter_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
-    union_area = area_a + area_b - inter_area
-
-    return inter_area / union_area
-
-
 @dataclass(slots=True)
 class TrackFrame:
     """Detection snapshot used by the tracker."""
@@ -326,7 +304,7 @@ class Track:
                 self.summary.last_valid_frame.bbox,
                 self.summary.estimated_bbox,
             ]:
-                iou = max(iou, bbox_iou(ref_bbox, candidate.bbox))
+                iou = max(iou, utils.bbox_iou(ref_bbox, candidate.bbox))
                 a, b = ref_bbox.cxcywhn, candidate.bbox.cxcywhn
                 centroid_sim = max(
                     centroid_sim,
