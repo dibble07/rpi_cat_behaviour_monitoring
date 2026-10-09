@@ -150,7 +150,7 @@ def classify_behaviour(
 
 
 def embed_image(image: np.ndarray) -> np.ndarray:
-    """Generate an L2-normalized embedding for an RGB image array using cached ONNX session."""
+    """Generate an L2-normalised embedding for an RGB image array using cached ONNX session."""
 
     # pad to square with grey filler
     h, w = image.shape[:2]
@@ -196,7 +196,7 @@ class TrackFrame:
 
     def __post_init__(self) -> None:
         if self.image is None:
-            raise ValueError("TrackFrame.image is required at initialization")
+            raise ValueError("TrackFrame.image is required at initialisation")
         self.frame_wh = tuple(reversed(self.image.shape[:2]))
         x1, y1, x2, y2 = self.bbox.xyxy
         x1, y1, x2, y2 = utils.expand_bbox_from_bounds(
