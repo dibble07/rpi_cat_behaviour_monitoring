@@ -20,6 +20,7 @@ import threading
 import time
 
 import shared
+from annotate import annotate_thread
 from capture import capture_thread
 from monitoring import monitoring_thread
 from processing import processing_thread
@@ -27,9 +28,11 @@ from processing import processing_thread
 # start threads
 capture_t = threading.Thread(target=capture_thread)
 processing_t = threading.Thread(target=processing_thread)
+annotation_t = threading.Thread(target=annotate_thread)
 monitoring_t = threading.Thread(target=monitoring_thread)
 capture_t.start()
 processing_t.start()
+annotation_t.start()
 monitoring_t.start()
 
 # keep main thread alive until shutdown is requested
@@ -49,6 +52,9 @@ if capture_t.is_alive():
 processing_t.join(timeout=5)
 if processing_t.is_alive():
     logger.warning("Processing thread did not exit cleanly within timeout")
+annotation_t.join(timeout=5)
+if annotation_t.is_alive():
+    logger.warning("Annotation thread did not exit cleanly within timeout")
 monitoring_t.join(timeout=5)
 if monitoring_t.is_alive():
     logger.warning("Monitoring thread did not exit cleanly within timeout")
