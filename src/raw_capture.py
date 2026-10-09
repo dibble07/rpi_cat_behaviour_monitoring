@@ -1,11 +1,12 @@
 import faulthandler
 import logging
+import os
 import queue
 import threading
 import time
 
 from capture import capture_thread
-from config import RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
+from config import OUTPUT_DIR, RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
 from detection import Frame
 from monitoring import monitoring_thread
 from processing import _release_writers
@@ -44,7 +45,10 @@ def raw_recording_thread() -> None:
             if writer is not None:
                 writer = _release_writers(writer, log_msg="raw test rotation")
             writer = FfmpegWriter(
-                init_timestamp=timestamp.strftime(TIMESTAMP_FORMAT),
+                path=os.path.join(
+                    OUTPUT_DIR,
+                    f"{timestamp.strftime(TIMESTAMP_FORMAT)}.tmp.mp4",
+                ),
                 fps=settings.FPS,
                 width=settings.FRAME_WIDTH,
                 height=settings.FRAME_HEIGHT,

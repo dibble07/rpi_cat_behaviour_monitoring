@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 
 import utils
-from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
+from config import METADATA_DIR, OUTPUT_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
 from shared import (
     frame_queue,
@@ -161,7 +161,10 @@ def processing_thread():
                     if not recording:
 
                         writer = FfmpegWriter(
-                            frame_rec.timestamp.strftime(TIMESTAMP_FORMAT),
+                            os.path.join(
+                                OUTPUT_DIR,
+                                f"{frame_rec.timestamp.strftime(TIMESTAMP_FORMAT)}.tmp.mp4",
+                            ),
                             settings.FPS,
                             settings.FRAME_WIDTH,
                             settings.FRAME_HEIGHT,
