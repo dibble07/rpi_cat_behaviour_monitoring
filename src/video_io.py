@@ -74,7 +74,6 @@ class Picamera2Camera:
             controls={
                 "FrameRate": settings.FPS,
                 "AeEnable": True,
-                "ExposureTime": 2000,
                 "AeMeteringMode": 2,
                 "AwbEnable": True,
                 "HdrMode": 4,
