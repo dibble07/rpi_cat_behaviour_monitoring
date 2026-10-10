@@ -238,7 +238,7 @@ def annotate_thread() -> None:
             # annotate frame
             if success:
                 frame_hash = candidate["frame_hashes"][candidate["frame_index"]]
-                logger.debug(
+                logger.info(
                     f"Annotating frame {candidate['frame_index']} ({frame_hash}) of {candidate['video_path']}"
                 )
                 _annotate_frame(
