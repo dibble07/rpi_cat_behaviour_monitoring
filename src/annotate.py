@@ -255,4 +255,7 @@ def annotate_thread() -> None:
                 _close_annotation(candidate)
                 candidate = None
 
+            # throttle the annotation loop
+            time.sleep(1 / 10 / settings.FPS)
+
     logger.info("Annotation thread stopped")
