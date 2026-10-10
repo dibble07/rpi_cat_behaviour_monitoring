@@ -188,7 +188,9 @@ def annotate_thread() -> None:
     while not shutdown_event.is_set():
 
         # wait for processing to be idle
-        if processing_busy_event.is_set():
+        flag = processing_busy_event.is_set()
+        logger.info(f"Processing busy flag (idle): {flag}")
+        if flag:
             time.sleep(1 / 2 / settings.FPS)
             continue
 
@@ -198,7 +200,10 @@ def annotate_thread() -> None:
             for temp_path in _get_abandoned_annotation_files():
                 logger.warning(f"Deleting abandoned annotated video: {temp_path}")
                 temp_path.unlink()
-            if processing_busy_event.is_set():
+
+            flag = processing_busy_event.is_set()
+            logger.info(f"Processing busy flag (after cleanup): {flag}")
+            if flag:
                 continue
 
             # load the next video metadata for annotation
