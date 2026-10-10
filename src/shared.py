@@ -53,6 +53,7 @@ def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
 # prepare threadsafe queues and queue-size telemetry
 frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
 recording_queue_size = 0
+processing_busy_event = threading.Event()
 
 
 def set_recording_queue_size(size: int) -> None:

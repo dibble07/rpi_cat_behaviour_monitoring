@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def blur_image(image: np.ndarray) -> np.ndarray:
-    """Create a fixed-size resized grayscale blur of an image."""
+    """Create a fixed-size resized greyscale blur of an image."""
     return cv2.GaussianBlur(
         cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (640, 480)), (5, 5), 0
     )

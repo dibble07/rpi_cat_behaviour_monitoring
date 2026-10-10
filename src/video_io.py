@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 import utils
-from config import OUTPUT_DIR, SYSTEM, settings
+from config import SYSTEM, settings
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,6 @@ class Picamera2Camera:
             controls={
                 "FrameRate": settings.FPS,
                 "AeEnable": True,
-                "ExposureTime": 2000,
                 "AeMeteringMode": 2,
                 "AwbEnable": True,
                 "HdrMode": 4,
@@ -110,17 +109,18 @@ class FfmpegWriter:
 
     def __init__(
         self,
-        init_timestamp: str,
+        path: str | os.PathLike[str],
         fps: float,
         width: int,
         height: int,
         quality: int,
         queue_size_callback: Callable[[int], None] | None = None,
     ) -> None:
-        self.init_timestamp = init_timestamp
+        self.output_path = os.fspath(path)
+        self.init_timestamp = os.path.basename(self.output_path).removesuffix(
+            ".tmp.mp4"
+        )
         self._queue_size_callback = queue_size_callback
-        filename = f"{self.init_timestamp}.tmp.mp4"
-        self.output_path = os.path.join(OUTPUT_DIR, filename)
         self._queue: queue.Queue = queue.Queue(maxsize=25)
         self._report_queue_size()
         self._check_queue_empty()

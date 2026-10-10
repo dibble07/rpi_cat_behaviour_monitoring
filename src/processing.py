@@ -11,9 +11,14 @@ from typing import Optional
 import numpy as np
 
 import utils
-from config import METADATA_DIR, TIMESTAMP_FORMAT, settings
+from config import METADATA_DIR, OUTPUT_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
-from shared import frame_queue, set_recording_queue_size, shutdown_event
+from shared import (
+    frame_queue,
+    processing_busy_event,
+    set_recording_queue_size,
+    shutdown_event,
+)
 from tracking import TrackManager, VideoHashMap
 from video_io import FfmpegWriter
 
@@ -85,8 +90,19 @@ def processing_thread():
 
         logger.debug(f"({frame_proc.hash}) Running processing")
 
-        # detect objects and update tracking state
+        # detect objects
+        if (
+            frame_proc.has_search_area
+            or frame_proc.forced_detection_run
+            or recording
+            or track_manager.non_expired_tracks
+        ):
+            processing_busy_event.set()
+        else:
+            processing_busy_event.clear()
         track_frames, did_run_detection = frame_proc.detect_objects()
+
+        # update tracking state
         track_manager.update(
             track_frames,
             frame_proc.hash,
@@ -145,7 +161,10 @@ def processing_thread():
                     if not recording:
 
                         writer = FfmpegWriter(
-                            frame_rec.timestamp.strftime(TIMESTAMP_FORMAT),
+                            os.path.join(
+                                OUTPUT_DIR,
+                                f"{frame_rec.timestamp.strftime(TIMESTAMP_FORMAT)}.tmp.mp4",
+                            ),
                             settings.FPS,
                             settings.FRAME_WIDTH,
                             settings.FRAME_HEIGHT,

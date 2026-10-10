@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records video clips and stores tracking metadata for dynamic playback annotations. The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
+A real-time video monitoring system running on Raspberry Pi that detects cats and people, identifies specific cats and tracks them temporally. If no people are present, the system automatically records video clips and stores tracking metadata used to generate annotated playback copies. The system uses multi-threaded processing to efficiently handle continuous video capture, motion-aware detection, and recording workflows on resource-constrained hardware.
 
 ## Demo
 
@@ -12,7 +12,7 @@ A real-time video monitoring system running on Raspberry Pi that detects cats an
 
 ### Thread-Based Approach
 
-The system uses three threads that synchronise via thread-safe queues and event signals. This approach is taken to avoid delays and buffer in one process blocking other periodic behaviours that require specific timing.
+The system uses four threads that synchronise via thread-safe queues and event signals. This approach is taken to avoid delays and buffer in one process blocking other periodic behaviours that require specific timing.
 
 ### Capture Thread
 
@@ -88,7 +88,7 @@ stateDiagram-v2
 
 #### Cat Identification
 
-After updating, each TrackFrame is identified as being one of the possible cats using a classifier model on top of the existing embeddings. The history of identities across the Track is aggregated using a confidence-weighted mean. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used for dynamic web-player annotations.
+After updating, each TrackFrame is identified as being one of the possible cats using a classifier model on top of the existing embeddings. The history of identities across the Track is aggregated using a confidence-weighted mean. This assigns a cat identity label to the Track and keeps that label stable across short detection gaps. The resulting label is included in the metadata used to generate annotated playback copies.
 
 #### Behaviour Classification
 
@@ -146,11 +146,15 @@ flowchart TD
     N --> H
 ```
 
-Recorded clips contain the original camera frames. The track browser renders bounding boxes, identity-aware labels, and recent track-history trails dynamically from the recording metadata.
+Recorded source clips contain the original camera frames. The annotation thread creates validated annotated copies for playback in the track browser.
+
+### Annotation Thread
+
+Waits until processing is idle, then draws bounding boxes and behaviour labels frame-by-frame. The matching metadata is then removed once the video is annotated.
 
 ## Web Interface
 
-The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity, behaviour, training-video status, and date range, then replay clips with dynamically rendered annotations. Marking a video for training applies to every track from that video.
+The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity, behaviour, training-video status, and date range, then replay the annotated video copies. Marking a video for training applies to every track from that video.
 
 ## File Structure
 
@@ -171,9 +175,10 @@ The web player provides a web-based interface for viewing recorded tracks. Acces
 | File | Purpose |
 |---|---|
 | [src/app.py](src/app.py) | Main entry point: spawns threads, coordinates graceful shutdown |
-| [src/shared.py](src/shared.py) | Shared state and synchronisation primitives: `frame_queue`, `shutdown_event`, camera instance |
+| [src/shared.py](src/shared.py) | Shared state and synchronisation primitives: `frame_queue`, `processing_busy_event`, `shutdown_event`, camera instance |
 | [src/capture.py](src/capture.py) | Camera frame acquisition: reads frames and enqueues to `frame_queue` |
 | [src/processing.py](src/processing.py) | Core processing pipeline: object detection, tracking, recording |
+| [src/annotate.py](src/annotate.py) | Background thread that creates annotated copies of recordings |
 | [src/monitoring.py](src/monitoring.py) | Resource monitoring: logs system metrics periodically |
 | [src/settings.toml](src/settings.toml) | Application configuration |
 | [src/config.py](src/config.py) | Configuration loader: reads settings from `settings.toml` |
