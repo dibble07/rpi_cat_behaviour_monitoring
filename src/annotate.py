@@ -196,6 +196,7 @@ def annotate_thread() -> None:
 
             # clean up any abandoned annotation files
             for temp_path in _get_abandoned_annotation_files():
+                logger.warning(f"Deleting abandoned annotated video: {temp_path}")
                 temp_path.unlink()
             if processing_busy_event.is_set():
                 continue
@@ -237,6 +238,9 @@ def annotate_thread() -> None:
             # annotate frame
             if success:
                 frame_hash = candidate["frame_hashes"][candidate["frame_index"]]
+                logger.debug(
+                    f"Annotating frame {candidate['frame_index']} ({frame_hash}) of {candidate['video_path']}"
+                )
                 _annotate_frame(
                     frame,
                     frame_hash,
