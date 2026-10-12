@@ -211,7 +211,9 @@ def update_training_videos():
 
 @app.route("/video/<filename>")
 def serve_video(filename):
-    video_path = get_annotated_video_file_path(filename)
+    video_path = get_annotated_video_file_path(filename) or get_video_file_path(
+        filename
+    )
     if video_path is None:
         abort(404)
     return send_file(video_path, mimetype="video/mp4")
