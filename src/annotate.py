@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import cv2
@@ -14,6 +15,7 @@ from video_io import FfmpegWriter
 logger = logging.getLogger(__name__)
 _METADATA_DIR = Path(METADATA_DIR)
 _SUMMARIES_PATH = _METADATA_DIR / "track_summaries.jsonl"
+_ANN_FAILS: defaultdict[str, int] = defaultdict(int)
 
 
 def _load_next_video_metadata() -> dict | None:
@@ -40,7 +42,9 @@ def _load_next_video_metadata() -> dict | None:
     cand = {p for p in cand if p.name in summaries_by_video}
 
     # iterate over remaining candidates and yield the first one with complete metadata
-    for video_path in sorted(cand, key=lambda p: p.name, reverse=True):
+    for video_path in sorted(
+        cand, key=lambda p: (_ANN_FAILS[p.name], -int(p.stem.replace("_", "")))
+    ):
 
         # check metadata presence
         video_summaries = summaries_by_video[video_path.name]
@@ -176,7 +180,11 @@ def _close_annotation(candidate: dict) -> None:
     else:
 
         # delete invalid annotated video
-        logger.warning(f"Annotated video is invalid: {temp}")
+        video_name = candidate["video_path"].name
+        _ANN_FAILS[video_name] += 1
+        logger.warning(
+            f"Annotated video is invalid: {temp} ({_ANN_FAILS[video_name]} attempts)"
+        )
         temp.unlink()
 
 
@@ -196,7 +204,11 @@ def annotate_thread() -> None:
 
             # clean up any abandoned annotation files
             for temp_path in _get_abandoned_annotation_files():
-                logger.warning(f"Deleting abandoned annotated video: {temp_path}")
+                video_name = temp_path.name.removesuffix("_annotated.tmp.mp4") + ".mp4"
+                _ANN_FAILS[video_name] += 1
+                logger.warning(
+                    f"Deleting abandoned annotated video: {temp_path} ({_ANN_FAILS[video_name]} attempts)"
+                )
                 temp_path.unlink()
             if processing_busy_event.is_set():
                 continue
@@ -228,7 +240,9 @@ def annotate_thread() -> None:
                     "frame_index": 0,
                 }
             )
-            logger.info(f"Prepared annotation environment for video: {video_path}")
+            logger.info(
+                f"Prepared annotation environment for video: {video_path} ({_ANN_FAILS[video_path.name]} failed attempts)"
+            )
 
         else:
 
