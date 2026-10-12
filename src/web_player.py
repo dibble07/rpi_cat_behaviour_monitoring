@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import sys
@@ -38,10 +37,11 @@ class TrainingVideoStore:
     """Persists the set of video filenames selected for training"""
 
     def __init__(self) -> None:
-        self._path = Path(METADATA_DIR) / "training_videos.json"
+        self._path = Path(METADATA_DIR) / "training_videos.txt"
         self._videos = (
-            set(json.loads(self._path.read_text())) if self._path.exists() else set()
+            set(self._path.read_text().splitlines()) if self._path.exists() else set()
         )
+        self._write()
 
     def get(self) -> set[str]:
         return self._videos
@@ -60,7 +60,7 @@ class TrainingVideoStore:
         return self._videos
 
     def _write(self) -> None:
-        self._path.write_text(json.dumps(list(self._videos), indent=2) + "\n")
+        self._path.write_text("\n".join(self._videos))
 
 
 training_video_store = TrainingVideoStore()
