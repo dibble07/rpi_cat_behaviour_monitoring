@@ -140,20 +140,30 @@ def _annotate_frame(
 
 
 def _is_valid_video(video_path: Path, temp_path: Path) -> bool:
-    video = cv2.VideoCapture(str(video_path))
-    temp = cv2.VideoCapture(str(temp_path))
-    if valid := video.isOpened() and temp.isOpened():
-        for attr in [
-            cv2.CAP_PROP_FRAME_COUNT,
-            cv2.CAP_PROP_FRAME_WIDTH,
-            cv2.CAP_PROP_FRAME_HEIGHT,
-            cv2.CAP_PROP_FPS,
-        ]:
-            if video.get(attr) != temp.get(attr):
-                valid = False
-                break
-    video.release()
-    temp.release()
+    video_is_file, temp_is_file = video_path.is_file(), temp_path.is_file()
+    if valid := video_is_file and temp_is_file:
+        video = cv2.VideoCapture(str(video_path))
+        temp = cv2.VideoCapture(str(temp_path))
+        video_is_open, temp_is_open = video.isOpened(), temp.isOpened()
+        if valid := video_is_open and temp_is_open:
+            for attr in [
+                cv2.CAP_PROP_FRAME_COUNT,
+                cv2.CAP_PROP_FRAME_WIDTH,
+                cv2.CAP_PROP_FRAME_HEIGHT,
+                cv2.CAP_PROP_FPS,
+            ]:
+                video_val, temp_val = video.get(attr), temp.get(attr)
+                if not (valid := video_val == temp_val):
+                    logger.warning(
+                        f"Mismatched {attr}: video={video_val}, temp={temp_val}"
+                    )
+                    break
+        else:
+            logger.warning(f"Files open: video={video_is_open}, temp={temp_is_open}")
+        video.release()
+        temp.release()
+    else:
+        logger.warning(f"Files exist: video={video_is_file}, temp={temp_is_file}")
     return valid
 
 
@@ -185,7 +195,7 @@ def _close_annotation(candidate: dict) -> None:
         logger.warning(
             f"Annotated video is invalid: {temp} ({_ANN_FAILS[video_name]} attempts)"
         )
-        temp.unlink()
+        temp.unlink(missing_ok=True)
 
 
 def annotate_thread() -> None:
