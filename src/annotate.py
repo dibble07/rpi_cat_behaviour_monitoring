@@ -174,8 +174,10 @@ def _close_annotation(candidate: dict) -> None:
         logger.info(f"Final annotated video saved: {annotated}")
 
         # delete metadata files
-        for p in candidate["track_paths"] + [candidate["hashes_path"]]:
-            Path(p).unlink()
+        deleted_metadata = candidate["track_paths"] + [candidate["hashes_path"]]
+        for path in deleted_metadata:
+            Path(path).unlink()
+        logger.info(f"Deleted metadata files: {', '.join(deleted_metadata)}")
 
     else:
 
@@ -241,7 +243,7 @@ def annotate_thread() -> None:
                 }
             )
             logger.info(
-                f"Prepared annotation environment for video: {video_path} ({_ANN_FAILS[video_path.name]} failed attempts)"
+                f"Prepared annotation environment for video: {video_path} ({_ANN_FAILS[video_path.name]} failed attempts); selected tracks: {candidate["track_paths"]}"
             )
 
         else:
