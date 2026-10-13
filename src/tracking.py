@@ -573,8 +573,15 @@ class TrackManager:
                 ),  # type: ignore[attr-defined]
             }
 
-            with open(TRACK_SUMMARIES_PATH, "a") as f:
-                f.write(json.dumps(row, default=str) + "\n")
+            summaries = (
+                json.loads(TRACK_SUMMARIES_PATH.read_text())
+                if TRACK_SUMMARIES_PATH.exists()
+                else []
+            )
+            summaries.append(row)
+            TRACK_SUMMARIES_PATH.write_text(
+                json.dumps(summaries, default=str, indent=4)
+            )
 
             # export per-frame annotation info to a track-specific file
             annotations = {

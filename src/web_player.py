@@ -84,12 +84,11 @@ def get_annotated_video_file_path(filename):
 
 
 class TrackSummaryStore:
-    """Caches parsed track summaries and only re-reads lines appended since the last load."""
+    """Caches parsed track summaries and reloads them when the file changes."""
 
     def __init__(self) -> None:
         self._df = pd.DataFrame()
         self._mtime = 0.0
-        self._offset = 0
 
     def get(self) -> pd.DataFrame:
         if not self._df.empty:
@@ -103,21 +102,15 @@ class TrackSummaryStore:
         if mtime == self._mtime:
             return self._df
 
-        with open(TRACK_SUMMARIES_PATH) as f:
-            f.seek(self._offset)
-            new_df = pd.read_json(f, lines=True, dtype={"manager_id": str})
-            self._offset = f.tell()
-
-        if not new_df.empty:
-            new_df["track_start_dt_tm"] = pd.to_datetime(
-                new_df["track_start_dt_tm"]
-            ).dt.tz_localize(None)
-            new_df["behaviours"] = new_df["behaviours"].apply(sorted)
-            new_df["duration_s"] = (
-                new_df["track_elapsed_end_s"] - new_df["track_elapsed_start_s"]
-            )
-            new_df["files_ready"] = new_df.apply(self._files_ready, axis=1)
-            self._df = pd.concat([self._df, new_df], ignore_index=True)
+        self._df = pd.read_json(TRACK_SUMMARIES_PATH, dtype={"manager_id": str})
+        self._df["track_start_dt_tm"] = pd.to_datetime(
+            self._df["track_start_dt_tm"]
+        ).dt.tz_localize(None)
+        self._df["behaviours"] = self._df["behaviours"].apply(sorted)
+        self._df["duration_s"] = (
+            self._df["track_elapsed_end_s"] - self._df["track_elapsed_start_s"]
+        )
+        self._df["files_ready"] = self._df.apply(self._files_ready, axis=1)
 
         self._mtime = mtime
         return self._df

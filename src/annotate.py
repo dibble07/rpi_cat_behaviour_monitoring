@@ -14,7 +14,7 @@ from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 _METADATA_DIR = Path(METADATA_DIR)
-_SUMMARIES_PATH = _METADATA_DIR / "track_summaries.jsonl"
+_SUMMARIES_PATH = _METADATA_DIR / "track_summaries.json"
 _ANN_FAILS: defaultdict[str, int] = defaultdict(int)
 
 
@@ -31,9 +31,7 @@ def _load_next_video_metadata() -> dict | None:
 
     # remove candidates with no corresponding track summaries
     summaries = (
-        list(map(json.loads, _SUMMARIES_PATH.read_text().splitlines()))
-        if _SUMMARIES_PATH.exists()
-        else []
+        json.loads(_SUMMARIES_PATH.read_text()) if _SUMMARIES_PATH.exists() else []
     )
     summaries_by_video = {
         n: [s for s in summaries if s["video_name"] == n]

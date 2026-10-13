@@ -40,7 +40,7 @@ def _release_writers(
     os.rename(writer.output_path, final_path)
     logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
 
-    # video_name matches the one recorded against track_summaries.jsonl rows for this recording
+    # video_name matches the one recorded against track_summaries.json entries for this recording
     if video_hash_map:
         video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         hashes = video_hash_map.get_hashes(video_name)
