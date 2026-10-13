@@ -37,7 +37,7 @@ def _load_next_video_metadata() -> dict | None:
         n: [s for s in summaries if s["video_name"] == n]
         for n in {s["video_name"] for s in summaries}
     }
-    cand = {p for p in cand if p.name in summaries_by_video}
+    cand = {p for p in cand if p.name in summaries_by_video and _ANN_FAILS[p.name] < 5}
 
     # iterate over remaining candidates and yield the first one with complete metadata
     for video_path in sorted(
