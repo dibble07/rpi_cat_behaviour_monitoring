@@ -95,7 +95,7 @@ def processing_thread():
             frame_proc.has_search_area
             or frame_proc.forced_detection_run
             or recording
-            or track_manager.non_expired_tracks
+            or track_manager.tracks
         ):
             processing_busy_event.set()
         else:
