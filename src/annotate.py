@@ -262,7 +262,8 @@ def annotate_thread() -> None:
             # annotate frame
             if success:
                 frame_hash = candidate["frame_hashes"][candidate["frame_index"]]
-                logger.debug(
+                lg = logger.info if candidate["frame_index"] % 10 == 0 else logger.debug
+                lg(
                     f"Annotating frame {candidate['frame_index']} ({frame_hash}) of {candidate['video_path']}"
                 )
                 _annotate_frame(
@@ -276,6 +277,10 @@ def annotate_thread() -> None:
 
             # close annotation for the current video
             else:
+                if candidate["frame_index"] == 0:
+                    logger.warning(
+                        f"Failed to read first frame of {candidate['video_path']}"
+                    )
                 _close_annotation(candidate)
                 candidate = None
 
