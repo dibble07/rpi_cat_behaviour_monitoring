@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import sys
@@ -38,10 +37,11 @@ class TrainingVideoStore:
     """Persists the set of video filenames selected for training"""
 
     def __init__(self) -> None:
-        self._path = Path(METADATA_DIR) / "training_videos.json"
+        self._path = Path(METADATA_DIR) / "training_videos.txt"
         self._videos = (
-            set(json.loads(self._path.read_text())) if self._path.exists() else set()
+            set(self._path.read_text().splitlines()) if self._path.exists() else set()
         )
+        self._write()
 
     def get(self) -> set[str]:
         return self._videos
@@ -60,7 +60,7 @@ class TrainingVideoStore:
         return self._videos
 
     def _write(self) -> None:
-        self._path.write_text(json.dumps(list(self._videos), indent=2) + "\n")
+        self._path.write_text("\n".join(self._videos))
 
 
 training_video_store = TrainingVideoStore()
@@ -84,12 +84,11 @@ def get_annotated_video_file_path(filename):
 
 
 class TrackSummaryStore:
-    """Caches parsed track summaries and only re-reads lines appended since the last load."""
+    """Caches parsed track summaries and reloads them when the file changes."""
 
     def __init__(self) -> None:
         self._df = pd.DataFrame()
         self._mtime = 0.0
-        self._offset = 0
 
     def get(self) -> pd.DataFrame:
         if not self._df.empty:
@@ -103,21 +102,15 @@ class TrackSummaryStore:
         if mtime == self._mtime:
             return self._df
 
-        with open(TRACK_SUMMARIES_PATH) as f:
-            f.seek(self._offset)
-            new_df = pd.read_json(f, lines=True, dtype={"manager_id": str})
-            self._offset = f.tell()
-
-        if not new_df.empty:
-            new_df["track_start_dt_tm"] = pd.to_datetime(
-                new_df["track_start_dt_tm"]
-            ).dt.tz_localize(None)
-            new_df["behaviours"] = new_df["behaviours"].apply(sorted)
-            new_df["duration_s"] = (
-                new_df["track_elapsed_end_s"] - new_df["track_elapsed_start_s"]
-            )
-            new_df["files_ready"] = new_df.apply(self._files_ready, axis=1)
-            self._df = pd.concat([self._df, new_df], ignore_index=True)
+        self._df = pd.read_json(TRACK_SUMMARIES_PATH, dtype={"manager_id": str})
+        self._df["track_start_dt_tm"] = pd.to_datetime(
+            self._df["track_start_dt_tm"]
+        ).dt.tz_localize(None)
+        self._df["behaviours"] = self._df["behaviours"].apply(sorted)
+        self._df["duration_s"] = (
+            self._df["track_elapsed_end_s"] - self._df["track_elapsed_start_s"]
+        )
+        self._df["files_ready"] = self._df.apply(self._files_ready, axis=1)
 
         self._mtime = mtime
         return self._df
@@ -211,7 +204,9 @@ def update_training_videos():
 
 @app.route("/video/<filename>")
 def serve_video(filename):
-    video_path = get_annotated_video_file_path(filename)
+    video_path = get_annotated_video_file_path(filename) or get_video_file_path(
+        filename
+    )
     if video_path is None:
         abort(404)
     return send_file(video_path, mimetype="video/mp4")

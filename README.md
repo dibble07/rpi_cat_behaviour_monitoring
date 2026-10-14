@@ -154,7 +154,7 @@ Waits until processing is idle, then draws bounding boxes and behaviour labels f
 
 ## Web Interface
 
-The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity, behaviour, training-video status, and date range, then replay the annotated video copies. Marking a video for training applies to every track from that video.
+The web player provides a web-based interface for viewing recorded tracks. Access locally at `http://localhost:5000` when the system is running, or remotely via Tailscale at the device's tailscale hostname. Filter tracks by cat identity, behaviour, training-video status, and date range, then replay the annotated video copies. If an annotated copy is not ready, the track remains selectable and plays its original video instead; these rows are highlighted in red. Marking a video for training applies to every track from that video.
 
 ## File Structure
 

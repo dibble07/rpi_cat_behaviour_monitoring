@@ -128,28 +128,33 @@ Use Tailscale Serve to expose the automatically started web player to your tailn
 ## Cloud sync script
 1. [Install rclone](https://rclone.org/install/#script-installation)
 1. Run `rclone config` and get credentials [info](https://console.cloud.google.com/auth/clients?project=rpi-cat-behaviour-monitor) to complete
+1. The web player stores selected videos one filename per line in `metadata/training_videos.txt`.
 1. Create a systemd service file: `/etc/systemd/system/rclone-sync.service`
 1. Add content to file:
 ```
 [Unit]
 Description=Sync object_clips folder to Google Drive
+Requires=mnt-hdd.mount
+After=mnt-hdd.mount
 
 [Service]
 Type=oneshot
 User=rpdibble
-ExecStart=/usr/bin/rclone copy --ignore-checksum --ignore-size /home/rpdibble/rpi_cat_behaviour_monitoring/object_clips/ gdrive:rpi_cat_behaviour_monitoring/object_clips
-ExecStart=-/usr/bin/rclone copy /mnt/hdd/object_clips/ gdrive:rpi_cat_behaviour_monitoring/object_clips
+WorkingDirectory=/mnt/hdd/object_clips
+ExecStart=/bin/bash -euc "/usr/bin/awk '1' metadata/training_videos.txt > metadata/sync_manifest.txt"
+ExecStart=/bin/bash -euc "/usr/bin/find . -type f -name '*_logs.txt' -printf '%%P\\n' >> metadata/sync_manifest.txt"
+ExecStart=/bin/bash -euc "/usr/bin/find metadata -type f -printf 'metadata/%%P\\n' >> metadata/sync_manifest.txt"
+ExecStart=/usr/bin/rclone sync --ignore-checksum --ignore-size --files-from-raw metadata/sync_manifest.txt --delete-excluded ./ gdrive:rpi_cat_behaviour_monitoring/object_clips
 ```
 1. Create a systemd timer file: `/etc/systemd/system/rclone-sync.timer`
 1. Add content to file:
 ```
 [Unit]
-Description=Run rclone sync every minute
+Description=Run rclone sync periodically
 
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=10min
-Persistent=true
 
 [Install]
 WantedBy=timers.target

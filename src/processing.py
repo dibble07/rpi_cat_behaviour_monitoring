@@ -40,7 +40,7 @@ def _release_writers(
     os.rename(writer.output_path, final_path)
     logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
 
-    # video_name matches the one recorded against track_summaries.jsonl rows for this recording
+    # video_name matches the one recorded against track_summaries.json entries for this recording
     if video_hash_map:
         video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
         hashes = video_hash_map.get_hashes(video_name)
@@ -95,7 +95,7 @@ def processing_thread():
             frame_proc.has_search_area
             or frame_proc.forced_detection_run
             or recording
-            or track_manager.non_expired_tracks
+            or track_manager.tracks
         ):
             processing_busy_event.set()
         else:

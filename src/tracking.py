@@ -384,6 +384,7 @@ class Track:
 
     def _next_bbox_from_kf(self, frame_wh: tuple[int, int]) -> utils.Bbox:
         next_state = self._kf.F @ self._kf.x
+        next_state[2:4, 0] = np.maximum(next_state[2:4, 0], 2)
         cx, cy, w, h = next_state[:4].flatten()
         return utils.Bbox(
             xyxy=(
@@ -409,6 +410,13 @@ class Track:
                 self._kf.update(meas)
         elif hasattr(self, "_kf"):
             self._kf.predict()
+
+        if hasattr(self, "_kf"):
+            sizes = self._kf.x[2:4, 0]
+            at_minimum = sizes < 2
+            sizes[at_minimum] = 2
+            size_velocities = self._kf.x[6:8, 0]
+            size_velocities[at_minimum & (size_velocities < 0)] = 0
 
         # identify simple info about track
         frame_count = len(self._frames)
@@ -565,8 +573,15 @@ class TrackManager:
                 ),  # type: ignore[attr-defined]
             }
 
-            with open(TRACK_SUMMARIES_PATH, "a") as f:
-                f.write(json.dumps(row, default=str) + "\n")
+            summaries = (
+                json.loads(TRACK_SUMMARIES_PATH.read_text())
+                if TRACK_SUMMARIES_PATH.exists()
+                else []
+            )
+            summaries.append(row)
+            TRACK_SUMMARIES_PATH.write_text(
+                json.dumps(summaries, default=str, indent=4)
+            )
 
             # export per-frame annotation info to a track-specific file
             annotations = {

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import cv2
@@ -13,7 +14,8 @@ from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
 _METADATA_DIR = Path(METADATA_DIR)
-_SUMMARIES_PATH = _METADATA_DIR / "track_summaries.jsonl"
+_SUMMARIES_PATH = _METADATA_DIR / "track_summaries.json"
+_ANN_FAILS: defaultdict[str, int] = defaultdict(int)
 
 
 def _load_next_video_metadata() -> dict | None:
@@ -29,18 +31,18 @@ def _load_next_video_metadata() -> dict | None:
 
     # remove candidates with no corresponding track summaries
     summaries = (
-        list(map(json.loads, _SUMMARIES_PATH.read_text().splitlines()))
-        if _SUMMARIES_PATH.exists()
-        else []
+        json.loads(_SUMMARIES_PATH.read_text()) if _SUMMARIES_PATH.exists() else []
     )
     summaries_by_video = {
         n: [s for s in summaries if s["video_name"] == n]
         for n in {s["video_name"] for s in summaries}
     }
-    cand = {p for p in cand if p.name in summaries_by_video}
+    cand = {p for p in cand if p.name in summaries_by_video and _ANN_FAILS[p.name] < 5}
 
     # iterate over remaining candidates and yield the first one with complete metadata
-    for video_path in sorted(cand, key=lambda p: p.name, reverse=True):
+    for video_path in sorted(
+        cand, key=lambda p: (_ANN_FAILS[p.name], -int(p.stem.replace("_", "")))
+    ):
 
         # check metadata presence
         video_summaries = summaries_by_video[video_path.name]
@@ -138,20 +140,30 @@ def _annotate_frame(
 
 
 def _is_valid_video(video_path: Path, temp_path: Path) -> bool:
-    video = cv2.VideoCapture(str(video_path))
-    temp = cv2.VideoCapture(str(temp_path))
-    if valid := video.isOpened() and temp.isOpened():
-        for attr in [
-            cv2.CAP_PROP_FRAME_COUNT,
-            cv2.CAP_PROP_FRAME_WIDTH,
-            cv2.CAP_PROP_FRAME_HEIGHT,
-            cv2.CAP_PROP_FPS,
-        ]:
-            if video.get(attr) != temp.get(attr):
-                valid = False
-                break
-    video.release()
-    temp.release()
+    video_is_file, temp_is_file = video_path.is_file(), temp_path.is_file()
+    if valid := video_is_file and temp_is_file:
+        video = cv2.VideoCapture(str(video_path))
+        temp = cv2.VideoCapture(str(temp_path))
+        video_is_open, temp_is_open = video.isOpened(), temp.isOpened()
+        if valid := video_is_open and temp_is_open:
+            for attr in [
+                cv2.CAP_PROP_FRAME_COUNT,
+                cv2.CAP_PROP_FRAME_WIDTH,
+                cv2.CAP_PROP_FRAME_HEIGHT,
+                cv2.CAP_PROP_FPS,
+            ]:
+                video_val, temp_val = video.get(attr), temp.get(attr)
+                if not (valid := video_val == temp_val):
+                    logger.warning(
+                        f"Mismatched {attr}: video={video_val}, temp={temp_val}"
+                    )
+                    break
+        else:
+            logger.warning(f"Files open: video={video_is_open}, temp={temp_is_open}")
+        video.release()
+        temp.release()
+    else:
+        logger.warning(f"Files exist: video={video_is_file}, temp={temp_is_file}")
     return valid
 
 
@@ -170,14 +182,20 @@ def _close_annotation(candidate: dict) -> None:
         logger.info(f"Final annotated video saved: {annotated}")
 
         # delete metadata files
-        for p in candidate["track_paths"] + [candidate["hashes_path"]]:
-            Path(p).unlink()
+        deleted_metadata = candidate["track_paths"] + [candidate["hashes_path"]]
+        for path in deleted_metadata:
+            Path(path).unlink()
+        logger.info(f"Deleted metadata files: {', '.join(deleted_metadata)}")
 
     else:
 
         # delete invalid annotated video
-        logger.warning(f"Annotated video is invalid: {temp}")
-        temp.unlink()
+        video_name = candidate["video_path"].name
+        _ANN_FAILS[video_name] += 1
+        logger.warning(
+            f"Annotated video is invalid: {temp} ({_ANN_FAILS[video_name]} attempts)"
+        )
+        temp.unlink(missing_ok=True)
 
 
 def annotate_thread() -> None:
@@ -196,7 +214,11 @@ def annotate_thread() -> None:
 
             # clean up any abandoned annotation files
             for temp_path in _get_abandoned_annotation_files():
-                logger.warning(f"Deleting abandoned annotated video: {temp_path}")
+                video_name = temp_path.name.removesuffix("_annotated.tmp.mp4") + ".mp4"
+                _ANN_FAILS[video_name] += 1
+                logger.warning(
+                    f"Deleting abandoned annotated video: {temp_path} ({_ANN_FAILS[video_name]} attempts)"
+                )
                 temp_path.unlink()
             if processing_busy_event.is_set():
                 continue
@@ -228,7 +250,9 @@ def annotate_thread() -> None:
                     "frame_index": 0,
                 }
             )
-            logger.info(f"Prepared annotation environment for video: {video_path}")
+            logger.info(
+                f"Prepared annotation environment for video: {video_path} ({_ANN_FAILS[video_path.name]} failed attempts); selected tracks: {candidate["track_paths"]}"
+            )
 
         else:
 
@@ -238,7 +262,8 @@ def annotate_thread() -> None:
             # annotate frame
             if success:
                 frame_hash = candidate["frame_hashes"][candidate["frame_index"]]
-                logger.debug(
+                lg = logger.info if candidate["frame_index"] % 10 == 0 else logger.debug
+                lg(
                     f"Annotating frame {candidate['frame_index']} ({frame_hash}) of {candidate['video_path']}"
                 )
                 _annotate_frame(
@@ -252,6 +277,10 @@ def annotate_thread() -> None:
 
             # close annotation for the current video
             else:
+                if candidate["frame_index"] == 0:
+                    logger.warning(
+                        f"Failed to read first frame of {candidate['video_path']}"
+                    )
                 _close_annotation(candidate)
                 candidate = None
 

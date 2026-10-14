@@ -83,12 +83,6 @@ async function update() {
             currentVideoName = t.video_name;
             trainingVideoCheckbox.disabled = false;
             trainingVideoCheckbox.checked = t.is_training_video;
-            if (!t.files_ready) {
-                video.pause();
-                video.removeAttribute('src');
-                video.load();
-                return;
-            }
             video.src = `/video/${t.video_name}`;
             video.currentTime = Math.max(0, t.track_elapsed_start_s - LEAD_IN_S);
             video.play();
