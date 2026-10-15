@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import queue
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import Optional
 
@@ -142,6 +142,21 @@ def processing_thread():
             ]
             rec_summaries_valid = [s for s in rec_summaries if s]
             has_excluded_object = any(not s.object_valid for s in rec_summaries_valid)
+
+            # log concurrent cat identities
+            cat_tracks = defaultdict(list)
+            for summary in rec_summaries_valid:
+                if summary.cat_name is not None:
+                    cat_tracks[summary.cat_name].append(summary)
+            for cat_name, summaries in cat_tracks.items():
+                if len(summaries) > 1:
+                    details = "; ".join(
+                        f"id={s.track_id} state={s.state.name} object_conf={s.last_valid_frame.confidence:.2f} identity_conf={s.cat_conf:.2f}"
+                        for s in summaries
+                    )
+                    logger.warning(
+                        f"({frame_rec.hash}) Concurrent cat identity: cat={cat_name} tracks=[{details}]"
+                    )
 
             if rec_summaries_valid:
 
