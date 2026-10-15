@@ -252,10 +252,36 @@ def expand_bbox_from_bounds(
     return [x1, y1, x2, y2]
 
 
+def normalised_entropy(probs: np.ndarray) -> np.ndarray:
+    """Calculate the normalised entropy of each row"""
+    if probs.shape[1] <= 1:
+        return np.zeros(probs.shape[0], dtype=probs.dtype)
+    clipped_probs = np.clip(probs, 1e-12, 1)
+    ent = -np.sum(clipped_probs * np.log(clipped_probs), axis=1)
+    return np.clip(ent / np.log(probs.shape[1]), 0, 1)
+
+
+def adjust_probabilities_by_context(probs: np.ndarray) -> np.ndarray:
+    """Adjust each row's probabilities using entropy-weighted context from other rows"""
+    wgt = 1.0 - normalised_entropy(probs)
+    probs_adj = []
+    for i, prob in enumerate(probs):
+        other_wgt = np.delete(wgt, i)
+        total_wgt = other_wgt.sum()
+        if total_wgt == 0:
+            probs_adj.append(prob)
+        else:
+            other_probs = np.delete(probs, i, axis=0)
+            other_avg = np.average(other_probs, weights=other_wgt, axis=0)
+            prob_adj = prob * np.exp(-total_wgt * other_avg)
+            probs_adj.append(prob_adj / prob_adj.sum())
+    return np.stack(probs_adj)
+
+
 def entropy_weights(probs: np.ndarray) -> np.ndarray:
     """Calculate weights based on probability entropy"""
-    ent = -np.sum(np.clip(probs, 1e-12, 1) * np.log(np.clip(probs, 1e-12, 1)), axis=1)
-    wgt = np.clip(1.0 - (ent / np.log(probs.shape[1])), 0, 1) ** 2
+    ent = normalised_entropy(probs)
+    wgt = np.clip(1.0 - ent, 0, 1) ** 2
     return np.ones_like(wgt) if wgt.sum() == 0 else wgt
 
 

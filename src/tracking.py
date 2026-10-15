@@ -193,6 +193,9 @@ class TrackFrame:
     roi: Optional[np.ndarray] = field(init=False, repr=False)
     _roi_embedding: Optional[np.ndarray] = field(init=False, default=None, repr=False)
     _cat_name_proba: Optional[np.ndarray] = field(init=False, default=None, repr=False)
+    _cat_name_proba_adjusted: Optional[np.ndarray] = field(
+        init=False, default=None, repr=False
+    )
 
     def __post_init__(self) -> None:
         if self.image is None:
@@ -233,6 +236,16 @@ class TrackFrame:
             self._cat_name_proba = result["proba"]
             utils.log_timing(logger, "Identification", start, self.frame_hash)
         return self._cat_name_proba
+
+    @property
+    def cat_name_proba_adjusted(self) -> np.ndarray:
+        if self._cat_name_proba_adjusted is None:
+            raise RuntimeError("Adjusted cat probabilities are not available")
+        return self._cat_name_proba_adjusted
+
+    @cat_name_proba_adjusted.setter
+    def cat_name_proba_adjusted(self, probabilities: np.ndarray) -> None:
+        self._cat_name_proba_adjusted = probabilities
 
 
 class TrackState(IntEnum):
@@ -476,7 +489,7 @@ class Track:
         # aggregate cat name based weighted by entropy
         if last_frame:
             if last_frame.object_name == "cat":
-                probs = np.stack([f.cat_name_proba for f in self._frames if f])
+                probs = np.stack([f.cat_name_proba_adjusted for f in self._frames if f])
                 ent_wgt = utils.entropy_weights(probs)
                 probs_avg = np.average(probs, axis=0, weights=ent_wgt)
                 cat_id = int(np.argmax(probs_avg))
@@ -664,6 +677,14 @@ class TrackManager:
         frame_hash: str,
         video_hash_map: VideoHashMap,
     ) -> None:
+
+        # adjust identity probabilities based on other ROIs in this frame
+        cat_candidates = [frame for frame in candidates if frame.object_name == "cat"]
+        if cat_candidates:
+            probs = np.stack([frame.cat_name_proba for frame in cat_candidates])
+            adjusted = utils.adjust_probabilities_by_context(probs)
+            for frame, probabilities in zip(cat_candidates, adjusted):
+                frame.cat_name_proba_adjusted = probabilities
 
         # store frame hash on all tracks for logging
         for track in self.tracks:
