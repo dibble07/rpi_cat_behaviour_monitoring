@@ -11,11 +11,15 @@ if str(SRC_ROOT) not in sys.path:
 
 from utils import get_video_paths
 
+manual_subset = []
+
 
 def main() -> int:
     video_paths = get_video_paths(
         mock_inputs=True, mock_inputs_long=True, raw_behaviour=True
     )
+    if manual_subset:
+        video_paths = [p for p in video_paths if p.name in manual_subset]
     app_path = SRC_ROOT / "app.py"
 
     for index, video_path in enumerate(video_paths, start=1):
