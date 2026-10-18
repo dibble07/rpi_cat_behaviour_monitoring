@@ -8,6 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+import utils
 from config import CAT_COLOUR_MAP, METADATA_DIR, OBJECT_COLOUR_MAP, OUTPUT_DIR, settings
 from shared import processing_busy_event, processing_stopped_event
 from video_io import FfmpegWriter
@@ -46,21 +47,19 @@ def _load_next_video_metadata() -> dict | None:
 
         # check metadata presence
         video_summaries = summaries_by_video[video_path.name]
-        hashes_path = _METADATA_DIR / f"video-{video_path.name}.json"
         track_paths = [
             _METADATA_DIR / f"track-{r['manager_id']}-{r['track_id']}.json"
             for r in video_summaries
         ]
-        if not all(path.is_file() for path in track_paths) or not hashes_path.is_file():
+        if not all(path.is_file() for path in track_paths):
             continue
 
         # load metadata
-        frame_hashes = json.loads(hashes_path.read_text())
+        frame_hashes = utils.get_video_hashes(video_path)
         track_annotations = [json.loads(p.read_text()) for p in track_paths]
 
         return {
             "video_path": video_path,
-            "hashes_path": str(hashes_path),
             "frame_hashes": frame_hashes,
             "track_paths": [str(p) for p in track_paths],
             "track_annotations": track_annotations,
@@ -76,7 +75,7 @@ def _get_abandoned_annotation_files() -> list[Path]:
 
 def _annotate_frame(
     frame: np.ndarray,
-    frame_hash: str,
+    frame_index: int,
     track_annotations: list[dict[str, dict[str, object]]],
     track_summaries: list[dict],
 ) -> None:
@@ -86,7 +85,7 @@ def _annotate_frame(
             summary["cat_id"],
             OBJECT_COLOUR_MAP.get(summary["object_name"], (200, 200, 200)),
         )
-        if annotation := annotations.get(frame_hash):
+        if annotation := annotations.get(str(frame_index)):
             bbox = annotation["bbox"]
             x_center, y_center, box_width, box_height = map(float, bbox)  # type: ignore[call-overload]
             x1 = max(0, int((x_center - box_width / 2) * width))
@@ -182,7 +181,7 @@ def _close_annotation(candidate: dict) -> None:
         logger.info(f"Final annotated video saved: {annotated}")
 
         # delete metadata files
-        deleted_metadata = candidate["track_paths"] + [candidate["hashes_path"]]
+        deleted_metadata = candidate["track_paths"]
         for path in deleted_metadata:
             Path(path).unlink()
         logger.info(f"Deleted metadata files: {', '.join(deleted_metadata)}")
@@ -264,14 +263,15 @@ def annotate_thread() -> None:
 
             # annotate frame
             if success:
-                frame_hash = candidate["frame_hashes"][candidate["frame_index"]]
-                lg = logger.info if candidate["frame_index"] % 10 == 0 else logger.debug
+                frame_index = candidate["frame_index"]
+                frame_hash = candidate["frame_hashes"][frame_index]
+                lg = logger.info if frame_index % 10 == 0 else logger.debug
                 lg(
-                    f"Annotating frame {candidate['frame_index']} ({frame_hash}) of {candidate['video_path']}"
+                    f"Annotating frame {frame_index} ({frame_hash}) of {candidate['video_path']}"
                 )
                 _annotate_frame(
                     frame,
-                    frame_hash,
+                    frame_index,
                     candidate["track_annotations"],
                     candidate["track_summaries"],
                 )
