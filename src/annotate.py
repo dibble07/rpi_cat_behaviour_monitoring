@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from config import CAT_COLOUR_MAP, METADATA_DIR, OBJECT_COLOUR_MAP, OUTPUT_DIR, settings
-from shared import processing_busy_event, shutdown_event
+from shared import processing_busy_event, processing_stopped_event
 from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -202,8 +202,9 @@ def annotate_thread() -> None:
     """Annotate ready recordings while processing is idle"""
     logger.info("Annotation thread started")
     candidate = None
+    annotations_complete = False
 
-    while not shutdown_event.is_set():
+    while not processing_stopped_event.is_set() or not annotations_complete:
 
         # wait for processing to be idle
         if processing_busy_event.is_set():
@@ -224,7 +225,9 @@ def annotate_thread() -> None:
                 continue
 
             # load the next video metadata for annotation
+            processing_stopped = processing_stopped_event.is_set()
             candidate = _load_next_video_metadata()
+            annotations_complete = processing_stopped and candidate is None
             if candidate is None:
                 time.sleep(1)
                 continue

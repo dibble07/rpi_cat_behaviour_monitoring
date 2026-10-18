@@ -54,6 +54,7 @@ def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
 frame_queue: queue.Queue[tuple[datetime, np.ndarray]] = queue.Queue()
 recording_queue_size = 0
 processing_busy_event = threading.Event()
+processing_stopped_event = threading.Event()
 
 
 def set_recording_queue_size(size: int) -> None:

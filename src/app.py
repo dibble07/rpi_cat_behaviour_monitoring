@@ -52,9 +52,12 @@ if capture_t.is_alive():
 processing_t.join(timeout=5)
 if processing_t.is_alive():
     logger.warning("Processing thread did not exit cleanly within timeout")
-annotation_t.join(timeout=5)
-if annotation_t.is_alive():
-    logger.warning("Annotation thread did not exit cleanly within timeout")
+while annotation_t.is_alive():
+    if not processing_t.is_alive():
+        shared.processing_busy_event.clear()
+        shared.processing_stopped_event.set()
+    logger.info("Waiting for pending video annotations to finish...")
+    annotation_t.join(timeout=5)
 monitoring_t.join(timeout=5)
 if monitoring_t.is_alive():
     logger.warning("Monitoring thread did not exit cleanly within timeout")
