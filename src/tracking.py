@@ -282,7 +282,12 @@ class Track:
     """Ordered collection of per-frame matches for a single target."""
 
     def __init__(
-        self, track_id: int, frame_index: int, frame: TrackFrame, frame_hash: str
+        self,
+        track_id: int,
+        frame_index: int,
+        frame: TrackFrame,
+        frame_hash: str,
+        frame_image: np.ndarray,
     ) -> None:
         self.track_id = track_id
         self._first_detection_index = frame_index
@@ -292,7 +297,8 @@ class Track:
         self._expired_at_frame_count: Optional[int] = None
         self.behaviour_history: dict[str, str] = {}
         self._behaviour_hidden_state: np.ndarray | None = None
-        self.append(frame)
+        self._excluded_object_sample: tuple[float, str, np.ndarray] | None = None
+        self.append(frame, frame_image)
 
     def __len__(self) -> int:
         return self.summary.frame_count
@@ -364,7 +370,25 @@ class Track:
         else:
             return -1.0
 
-    def append(self, frame: Optional[TrackFrame]) -> None:
+    def append(
+        self, frame: Optional[TrackFrame], frame_image: Optional[np.ndarray] = None
+    ) -> None:
+        if (
+            frame is not None
+            and frame.object_name in settings.EXCLUDED_OBJECTS
+            and frame.confidence < settings.TRACK_NEW_CONF_THRESHOLD + 0.1
+            and frame_image is not None
+        ):
+            if (
+                self._excluded_object_sample is None
+                or frame.confidence < self._excluded_object_sample[0]
+            ):
+                self._excluded_object_sample = (
+                    frame.confidence,
+                    frame.frame_hash,
+                    frame_image.copy(),
+                )
+
         if frame is not None and frame.object_name == "cat":
             embedding = frame.roi_embedding
             start = datetime.now()
@@ -655,13 +679,18 @@ class TrackManager:
         return matches[0]
 
     def _new_track(
-        self, track_frame: TrackFrame, frame_index: int, frame_hash: str
+        self,
+        track_frame: TrackFrame,
+        frame_index: int,
+        frame_hash: str,
+        frame_image: np.ndarray,
     ) -> Track:
         track = Track(
             track_id=self._next_track_id,
             frame_index=frame_index,
             frame=track_frame,
             frame_hash=frame_hash,
+            frame_image=frame_image,
         )
         self._next_track_id += 1
         return track
@@ -671,6 +700,7 @@ class TrackManager:
         candidates: List[TrackFrame],
         frame_hash: str,
         video_hash_map: VideoHashMap,
+        frame_image: np.ndarray,
     ) -> None:
 
         # adjust identity probabilities based on other ROIs in this frame
@@ -708,7 +738,7 @@ class TrackManager:
         for track_index, candidate_index in zip(row_ind, col_ind):
             if track_index < track_count and candidate_index < candidate_count:
                 track = assignable_tracks[track_index]
-                track.append(candidates[candidate_index])
+                track.append(candidates[candidate_index], frame_image)
                 matched_tracks.add(track)
                 matched_candidates.add(candidate_index)
                 logger.debug(
@@ -725,7 +755,9 @@ class TrackManager:
         # create new tracks for unmatched candidates
         for candidate_index, candidate in enumerate(candidates):
             if candidate_index not in matched_candidates:
-                self.tracks.append(self._new_track(candidate, frame_index, frame_hash))
+                self.tracks.append(
+                    self._new_track(candidate, frame_index, frame_hash, frame_image)
+                )
 
         # prune expired tracks that have been processed by the recording buffer
         n_tracks = len(self.tracks)
@@ -760,6 +792,17 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
+            if track.summary.confirmed and track._excluded_object_sample is not None:
+                conf, frame_hash, image = track._excluded_object_sample
+                sample_path = (
+                    Path(METADATA_DIR)
+                    / f"excluded-{self.manager_id}-track-{track.track_id}-{frame_hash}.jpg"
+                )
+                cv2.imwrite(str(sample_path), image)
+                logger.info(
+                    f"Saved excluded-object training sample "
+                    f"(conf={conf:.3f}): {sample_path}"
+                )
             if track.summary.confirmed and track.summary.object_valid:
                 self._export_track_summary(track, video_hash_map)
             self.tracks.remove(track)
