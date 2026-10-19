@@ -90,9 +90,6 @@ class VideoHashMap:
                 }
         raise KeyError(f"Frame hash not found in video map: {frame_hash}")
 
-    def get_hashes(self, video_name: str) -> list[str]:
-        return self._videos[video_name]["hashes"]  # type: ignore[return-value]
-
 
 _embedding_model_path = Path("models") / f"{settings.MODEL_EMBEDDING_PATH}.onnx"
 _embedding_session: ort.InferenceSession = ort.InferenceSession(
@@ -598,12 +595,12 @@ class TrackManager:
 
             # export per-frame annotation info to a track-specific file
             annotations = {
-                f.frame_hash: {
+                str(video_hash_map.get(f.frame_hash)["video_hash_index"]): {
                     "bbox": f.bbox.cxcywhn,
                     "behaviour": track.behaviour_history.get(f.frame_hash),
                 }
                 for f in track._frames
-                if f
+                if f and f.frame_hash in video_hash_map
             }
             track_filename = f"track-{self.manager_id}-{track.track_id}.json"
             with open(os.path.join(METADATA_DIR, track_filename), "w") as f:

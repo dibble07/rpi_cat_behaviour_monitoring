@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 import queue
@@ -11,7 +10,7 @@ from typing import Optional
 import numpy as np
 
 import utils
-from config import METADATA_DIR, OUTPUT_DIR, TIMESTAMP_FORMAT, settings
+from config import OUTPUT_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
 from shared import (
     frame_queue,
@@ -27,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 def _release_writers(
     writer: FfmpegWriter,
-    video_hash_map: VideoHashMap = None,
     frame_hash: Optional[str] = None,
     log_msg: str = "",
 ) -> Optional[FfmpegWriter]:
@@ -39,15 +37,6 @@ def _release_writers(
     final_path = writer.output_path.replace(".tmp.", ".")
     os.rename(writer.output_path, final_path)
     logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
-
-    # video_name matches the one recorded against track_summaries.json entries for this recording
-    if video_hash_map:
-        video_name = os.path.basename(writer.output_path.replace(".tmp.", "."))
-        hashes = video_hash_map.get_hashes(video_name)
-        with open(os.path.join(METADATA_DIR, f"video-{video_name}.json"), "w") as f:
-            json.dump(hashes, f, indent=4)
-    else:
-        logger.warning(f"No video hash map available for saving video metadata.")
 
     return None
 
@@ -218,7 +207,6 @@ def processing_thread():
                         log_msg = "all tracks expired"
                     writer = _release_writers(
                         writer,
-                        video_hash_map,
                         frame_rec.hash,
                         log_msg,
                     )
@@ -245,6 +233,6 @@ def processing_thread():
         processing_buffer.clear()
     track_manager.remove_tracks("all", video_hash_map=video_hash_map)
     if writer:
-        writer = _release_writers(writer, video_hash_map)
+        writer = _release_writers(writer)
 
     logger.info("Processing thread stopped")
