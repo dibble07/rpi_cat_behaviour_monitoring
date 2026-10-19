@@ -32,9 +32,7 @@ from video_io import Cv2Camera, FfmpegWriter
 logger = logging.getLogger(__name__)
 
 
-CAT_CLASSIFICATION_MODEL = joblib.load(
-    Path("models") / "classification_best_model.joblib"
-)
+CAT_CLASSIFICATION_MODEL = joblib.load(Path("models") / "identification.joblib")
 
 
 def classify_embedding(embedding: np.ndarray) -> dict:
