@@ -245,7 +245,7 @@ def expand_bbox_from_bounds(
     low_ar = (x2 - x1 + 0.5) / (y2 - y1 + 1.5)
     high_ar = (x2 - x1 + 1.5) / (y2 - y1 + 0.5)
     if not (low_ar <= target_ar <= high_ar):
-        logger.warning(
+        logger.info(
             f"Expanded bbox aspect ratio {exact_ar:.3f} is not close to target target {target_ar:.3f}"
         )
 
