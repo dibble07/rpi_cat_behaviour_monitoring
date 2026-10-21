@@ -96,6 +96,7 @@ def processing_thread():
             track_frames,
             frame_proc.hash,
             video_hash_map=video_hash_map,
+            frame_image=frame_proc.image,
         )
         frame_proc.proc_ids = [
             t.summary.track_id for t in track_manager.non_expired_tracks
