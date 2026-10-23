@@ -4,7 +4,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List, Optional
 
 import cv2
 import ncnn
@@ -27,12 +26,15 @@ class _Tensor:
         return _Tensor(self._arr[idx])
 
     def cpu(self) -> _Tensor:
+        """Mimic torch's Tensor.cpu for ultralytics-style results"""
         return self
 
     def numpy(self) -> np.ndarray:
+        """Mimic torch's Tensor.numpy for ultralytics-style results"""
         return self._arr
 
     def item(self) -> float:
+        """Mimic torch's Tensor.item for ultralytics-style results"""
         return float(self._arr.item())
 
 
@@ -70,12 +72,15 @@ class YoloNcnn:
         self,
         image: np.ndarray,
         imgsz: int | tuple[int, int] = 640,
-        conf: Optional[float] = None,
-        iou: Optional[float] = None,
-        iom: Optional[float] = None,
-        max_det: Optional[int] = None,
+        conf: float | None = None,
+        iou: float | None = None,
+        iom: float | None = None,
+        max_det: int | None = None,
         verbose: bool = True,
     ) -> list[SimpleNamespace]:
+        """Detect objects in an image, mimicking the ultralytics predict interface"""
+
+        # resolve thresholds and model input size
         eff_conf = self.conf if conf is None else conf
         eff_iou = self.iou if iou is None else iou
         eff_iom = self.iom if iom is None else iom
@@ -97,6 +102,7 @@ class YoloNcnn:
             ex.input("in0", ncnn.Mat(chw).clone())
             _, out0 = ex.extract("out0")
 
+        # arrange output as one row per candidate box
         pred = np.asarray(out0)
         if pred.shape[0] == 6:
             pred = pred.T
@@ -125,7 +131,7 @@ class YoloNcnn:
         boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]] * scale_y, 0, src_h - 1)
 
         # run class-wise NMS, then merge selected indices
-        keep: list[int] = []
+        keep = []
         for cls in np.unique(cls_idx):
             idx = np.where(cls_idx == cls)[0]
             picked = utils.nms_boxes(boxes[idx], cls_conf[idx], eff_iou, eff_iom)
@@ -159,8 +165,8 @@ class YoloNcnn:
 
 
 # load object detection model
-_model = YoloNcnn(Path("models") / settings.MODEL_DETECTION_PATH)
-_ = _model(
+_MODEL = YoloNcnn(Path("models") / settings.MODEL_DETECTION_PATH)
+_ = _MODEL(
     np.zeros((settings.FRAME_HEIGHT, settings.FRAME_WIDTH, 3), dtype=np.uint8),
     imgsz=tuple(settings.DETECTION_IMGSZ),
     conf=settings.CONF,
@@ -182,19 +188,24 @@ class Frame:
         self,
         timestamp: datetime,
         image: np.ndarray,
-        prev_frame: Optional[Frame],
+        prev_frame: Frame | None,
         prev_track_mask: np.ndarray,
         forced_detection_run: bool,
     ) -> None:
+
+        # store frame inputs
         self.timestamp = timestamp
         self.image = np.ascontiguousarray(image)
         self.prev_track_mask = prev_track_mask
         self.forced_detection_run = forced_detection_run
+
+        # blur and hash the image
         start = datetime.now()
         self.image_grey_blur = utils.blur_image(self.image)
         self.hash = utils.hash_image(self.image_grey_blur)
         utils.log_timing(logger, "Blur and hash", start, self.hash)
 
+        # keep the previous blurred image for motion detection
         if prev_frame is None:
             logger.warning(f"({self.hash}) No previous frame provided")
             self.prev_image_grey_blur = np.zeros_like(self.image_grey_blur)
@@ -203,8 +214,8 @@ class Frame:
                 np.uint8
             )
 
-    def _identify_search_area(self):
-        """Identify search area via frame differencing, background subtraction and previous tracks."""
+    def _identify_search_area(self) -> None:
+        """Identify search area via frame differencing, background subtraction and previous tracks"""
         # start timing
         start = datetime.now()
         logger.debug(f"({self.hash}) Running motion detection")
@@ -256,35 +267,35 @@ class Frame:
 
     @property
     def search_mask(self) -> np.ndarray:
+        """Mask of regions with motion or previous tracks"""
         if not hasattr(self, "_search_mask"):
             self._identify_search_area()
         return self._search_mask
 
     @property
     def has_search_area(self) -> bool:
+        """Whether enough of the frame needs searching to run detection"""
         if not hasattr(self, "_has_search_area"):
             self._identify_search_area()
         return self._has_search_area
 
-    def _identify_search_bbox(self):
-
-        logger.debug(f"({self.hash}) Identifying search bounding box")
+    @property
+    def search_bbox(self) -> list[int]:
+        """Padded bounding box around the search mask"""
 
         # identify bbox of the next detection region
-        h, w = self.image.shape[:2]
-        ys, xs = np.where(self.search_mask > 0)
-        x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
-        self._search_bbox = utils.expand_bbox_from_bounds(
-            x_min, x_max, y_min, y_max, w, h, 0.1
-        )
-
-    @property
-    def search_bbox(self) -> list:
         if not hasattr(self, "_search_bbox"):
-            self._identify_search_bbox()
+            logger.debug(f"({self.hash}) Identifying search bounding box")
+            h, w = self.image.shape[:2]
+            ys, xs = np.where(self.search_mask > 0)
+            x_min, x_max, y_min, y_max = xs.min(), xs.max(), ys.min(), ys.max()
+            self._search_bbox = utils.expand_bbox_from_bounds(
+                x_min, x_max, y_min, y_max, w, h, 0.1
+            )
         return self._search_bbox
 
-    def detect_objects(self) -> tuple[List[TrackFrame], bool]:
+    def detect_objects(self) -> tuple[list, bool]:
+        """Detect objects within the search region and wrap them for tracking"""
         track_frames = []
 
         # run detection if motion is present, active tracks exist, or on forced cadence
@@ -319,7 +330,7 @@ class Frame:
                 )
 
             # run model inference
-            results = _model(
+            results = _MODEL(
                 image,
                 imgsz=tuple(settings.DETECTION_IMGSZ),
                 conf=settings.CONF,
@@ -331,7 +342,7 @@ class Frame:
             # process detections
             for r in results.boxes:
                 bbox = tuple(r.xyxy[0].cpu().numpy().astype(np.int32) + offsets)
-                object_name = _model.names[int(r.cls[0].item())]
+                object_name = _MODEL.names[int(r.cls[0].item())]
                 frame_wh = (self.image.shape[1], self.image.shape[0])
                 track_frames.append(
                     TrackFrame(
@@ -339,7 +350,7 @@ class Frame:
                         image=self.image,
                         bbox=utils.Bbox(xyxy=bbox, frame_wh=frame_wh),
                         object_name=object_name,
-                        confidence=float(r.conf[0].item()),
+                        confidence=r.conf[0].item(),
                     )
                 )
 
@@ -356,7 +367,8 @@ class Frame:
         return track_frames, did_run_detection
 
     @property
-    def proc_ids(self) -> List[int]:
+    def proc_ids(self) -> list[int]:
+        """Ids of tracks active when this frame was processed"""
         if not hasattr(self, "_proc_ids"):
             raise RuntimeError(
                 f"Processing track ids not set yet for frame {self.hash}"
@@ -364,11 +376,12 @@ class Frame:
         return self._proc_ids
 
     @proc_ids.setter
-    def proc_ids(self, proc_ids: List[int]) -> None:
+    def proc_ids(self, proc_ids: list[int]) -> None:
         self._proc_ids = proc_ids
 
     @property
-    def recording_track_summaries(self) -> List[TrackSummary]:
+    def recording_track_summaries(self) -> list[TrackSummary]:
+        """Track summaries captured when this frame was recorded"""
         if not hasattr(self, "_recording_track_summaries"):
             raise RuntimeError(
                 f"Recording track summaries not set yet for frame {self.hash}"
@@ -377,6 +390,6 @@ class Frame:
 
     @recording_track_summaries.setter
     def recording_track_summaries(
-        self, recording_track_summaries: List[TrackSummary]
+        self, recording_track_summaries: list[TrackSummary]
     ) -> None:
         self._recording_track_summaries = recording_track_summaries

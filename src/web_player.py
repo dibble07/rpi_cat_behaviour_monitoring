@@ -4,7 +4,15 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from flask import Flask, abort, jsonify, request, send_file, send_from_directory
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+)
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
@@ -12,18 +20,11 @@ from config import (
     OUTPUT_DIR,
     TRACK_SUMMARIES_PATH,
     WEB_PLAYER_LOG_PATH,
+    configure_logging,
     settings,
 )
 
-logging.basicConfig(
-    level=settings.LOG_LEVEL,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(WEB_PLAYER_LOG_PATH, "a"),
-    ],
-)
+configure_logging(WEB_PLAYER_LOG_PATH)
 
 app = Flask(__name__, static_folder=None)
 app.logger.setLevel(settings.LOG_LEVEL)
@@ -37,43 +38,44 @@ class TrainingVideoStore:
     """Persists the set of video filenames selected for training"""
 
     def __init__(self) -> None:
-        self._path = Path(METADATA_DIR) / "training_videos.txt"
-        self._videos = (
+        self._path = METADATA_DIR / "training_videos.txt"
+        self.videos = (
             set(self._path.read_text().splitlines()) if self._path.exists() else set()
         )
-        self._write()
-
-    def get(self) -> set[str]:
-        return self._videos
+        self._save()
 
     def update(self, video_name: str, selected: bool) -> set[str]:
+        """Add or remove a video from the training selection"""
         if selected:
-            self._videos.add(video_name)
+            self.videos.add(video_name)
         else:
-            self._videos.discard(video_name)
-        self._write()
-        return self._videos
+            self.videos.discard(video_name)
+        return self._save()
 
     def clear(self) -> set[str]:
-        self._videos.clear()
-        self._write()
-        return self._videos
+        """Remove all videos from the training selection"""
+        self.videos.clear()
+        return self._save()
 
-    def _write(self) -> None:
-        self._path.write_text("\n".join(self._videos))
+    def _save(self) -> set[str]:
+        """Write the training selection to disk"""
+        self._path.write_text("\n".join(self.videos))
+        return self.videos
 
 
 training_video_store = TrainingVideoStore()
 
 
-def get_video_file_path(filename):
+def get_video_file_path(filename: str) -> Path | None:
+    """Locate a recorded video in the output directory"""
     if (path := Path(OUTPUT_DIR) / filename).exists():
         return path.resolve()
     else:
         return None
 
 
-def get_annotated_video_file_path(filename):
+def get_annotated_video_file_path(filename: str) -> Path | None:
+    """Locate the annotated copy of a recorded video, if it exists"""
     video_path = get_video_file_path(filename)
     if video_path is None:
         return None
@@ -84,80 +86,87 @@ def get_annotated_video_file_path(filename):
 
 
 class TrackSummaryStore:
-    """Caches parsed track summaries and reloads them when the file changes."""
+    """Caches parsed track summaries and reloads them when the file changes"""
 
     def __init__(self) -> None:
         self._df = pd.DataFrame()
         self._mtime = 0.0
 
     def get(self) -> pd.DataFrame:
+        """Provide track summaries, reloading them if the file has changed"""
+
+        # reload summaries when the file changes
+        mtime = os.path.getmtime(TRACK_SUMMARIES_PATH)
+        if mtime != self._mtime:
+            self._df = pd.read_json(TRACK_SUMMARIES_PATH, dtype={"manager_id": str})
+            self._df["track_start_dt_tm"] = pd.to_datetime(
+                self._df["track_start_dt_tm"]
+            ).dt.tz_localize(None)
+            self._df["behaviours"] = self._df["behaviours"].apply(sorted)
+            self._df["duration_s"] = (
+                self._df["track_elapsed_end_s"] - self._df["track_elapsed_start_s"]
+            )
+            self._df["files_ready"] = False
+            self._mtime = mtime
+
+        # check whether annotated copies are now ready for playback
         if not self._df.empty:
             pending = ~self._df["files_ready"]
             if pending.any():
-                self._df.loc[pending, "files_ready"] = self._df.loc[pending].apply(
-                    self._files_ready, axis=1
+                self._df.loc[pending, "files_ready"] = (
+                    self._df.loc[pending, "video_name"]
+                    .map(get_annotated_video_file_path)
+                    .notna()
                 )
 
-        mtime = os.path.getmtime(TRACK_SUMMARIES_PATH)
-        if mtime == self._mtime:
-            return self._df
-
-        self._df = pd.read_json(TRACK_SUMMARIES_PATH, dtype={"manager_id": str})
-        self._df["track_start_dt_tm"] = pd.to_datetime(
-            self._df["track_start_dt_tm"]
-        ).dt.tz_localize(None)
-        self._df["behaviours"] = self._df["behaviours"].apply(sorted)
-        self._df["duration_s"] = (
-            self._df["track_elapsed_end_s"] - self._df["track_elapsed_start_s"]
-        )
-        self._df["files_ready"] = self._df.apply(self._files_ready, axis=1)
-
-        self._mtime = mtime
         return self._df
-
-    @staticmethod
-    def _files_ready(row: pd.Series) -> bool:
-        """Check whether the validated annotated copy is ready for playback."""
-        return get_annotated_video_file_path(row["video_name"]) is not None
 
 
 track_summary_store = TrackSummaryStore()
 
-assets = Path(__file__).parent / "static"
+ASSETS = Path(__file__).parent / "static"
 
 
 @app.route("/")
-def index():
-    return send_from_directory(assets, "index.html")
+def index() -> Response:
+    """Serve the web player page"""
+    return send_from_directory(ASSETS, "index.html")
 
 
 @app.route("/style.css")
-def style():
-    return send_from_directory(assets, "style.css", mimetype="text/css")
+def style() -> Response:
+    """Serve the web player stylesheet"""
+    return send_from_directory(ASSETS, "style.css", mimetype="text/css")
 
 
 @app.route("/app.js")
-def app_js():
-    return send_from_directory(assets, "app.js", mimetype="text/javascript")
+def app_js() -> Response:
+    """Serve the web player script"""
+    return send_from_directory(ASSETS, "app.js", mimetype="text/javascript")
 
 
 @app.route("/api/tracks")
-def get_tracks():
-    df = track_summary_store.get()
-    training_videos = training_video_store.get()
-    df = df.copy()
+def get_tracks() -> Response:
+    """List tracks matching the requested filters and sort order"""
+
+    # load tracks and available filter options
+    df = track_summary_store.get().copy()
+    training_videos = training_video_store.videos
     df["is_training_video"] = df["video_name"].isin(training_videos)
     filters = {
         "cats": sorted(df["cat_id"].dropna().unique().tolist()),
         "behaviours": sorted({b for v in df["behaviours"] for b in v}),
     }
 
+    # filter by cat
     if cat := request.args.get("filter_cat_id", ""):
         df = df.loc[df.get("cat_id") == cat]
 
+    # filter by behaviour
     if behaviours := set(request.args.getlist("filter_behaviour")):
         df = df.loc[df["behaviours"].apply(lambda v: bool(behaviours.intersection(v)))]
 
+    # filter by training selection
     match request.args.get("filter_training_video"):
         case "training":
             df = df.loc[df["is_training_video"]]
@@ -166,12 +175,13 @@ def get_tracks():
         case None:
             pass
 
+    # filter by track start time
     if after := request.args.get("filter_track_time_after", ""):
         df = df.loc[df["track_start_dt_tm"] >= pd.Timestamp(after).tz_localize(None)]
-
     if before := request.args.get("filter_track_time_before", ""):
         df = df.loc[df["track_start_dt_tm"] <= pd.Timestamp(before).tz_localize(None)]
 
+    # sort and serialise tracks
     sort_by = request.args.get("sort_by", "track_start_dt_tm")
     reverse = request.args.get("sort_dir", "desc") == "desc"
     df = df.sort_values(by=sort_by, ascending=not reverse)
@@ -186,10 +196,14 @@ def get_tracks():
 
 
 @app.route("/api/training-videos", methods=["POST", "DELETE"])
-def update_training_videos():
+def update_training_videos() -> Response:
+    """Change which videos are selected for training"""
+
+    # clear all selections
     if request.method == "DELETE":
         return jsonify({"training_videos": list(training_video_store.clear())})
 
+    # update selection for one video
     data = request.get_json(silent=True)
     return jsonify(
         {
@@ -203,7 +217,8 @@ def update_training_videos():
 
 
 @app.route("/video/<filename>")
-def serve_video(filename):
+def serve_video(filename: str) -> Response:
+    """Stream the annotated video if available, otherwise the original"""
     video_path = get_annotated_video_file_path(filename) or get_video_file_path(
         filename
     )
