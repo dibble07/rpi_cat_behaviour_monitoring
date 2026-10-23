@@ -13,12 +13,15 @@ Apply these preferences when working with Python. First inspect applicable proje
 - Use f-strings for string interpolation.
 - Use `snake_case` for variables and functions, `UPPER_CASE` for module-level constants, and a leading underscore for private or hidden names.
 - Follow the project's established ordering for variables, functions, classes, and methods. When no convention is clear, follow the closest related code rather than reordering code arbitrarily.
-- Write one-line comments that explain the next group of lines. Skip comments for obvious code and very short functions.
-- Write one-line docstrings for functions and methods that describe purpose, not inputs or outputs.
+- Avoid duplicating logic, constants, or configuration. Reuse an existing helper or constant, or extract a shared one when the same code appears in more than one place.
+- Write one-line comments that explain the next group of lines. Comment each logical block, even when its code is obvious, so blocks stay visibly separated and unrelated code isn't merged into one block. Skip comments only in very short functions.
+- Write one-line docstrings for functions and methods that describe purpose, not inputs or outputs. Don't end one-line docstrings with a full stop.
+- Keep each import statement on a single line when it fits within the formatter's line length. Let the formatter wrap longer imports, and don't leave trailing commas that keep imports wrapped when they would fit on one line.
 - Avoid functions with only one call site when inlining keeps the code clear. Preserve meaningful public APIs, callbacks, lifecycle boundaries, and independently useful abstractions even if they have a single call site.
 - Add type hints to function and method parameters and return types. Do not annotate local or module-level variables. Keep type hints to at most one nested level, such as `list[dict]`, not `list[dict[str, int]]`.
+- Use modern typing syntax (PEP 604/585): `X | None` and `A | B` instead of `Optional` and `Union`, built-in generics such as `list`, `tuple`, `dict`, and `set` instead of `typing.List` and similar, and `collections.abc` for abstract types such as `Callable` and `Iterable`.
 - Avoid unnecessary `try`/`except` blocks and type casts. Use narrow type-checker ignores when needed; don't add casts or exception handling merely to silence a diagnostic.
-- Use single-letter names for temporary variables in comprehensions. Elsewhere, prefer concise descriptive names and abbreviate multiword names when that remains clear.
+- Use single-letter names for temporary variables in comprehensions.
 
 ## Applying the Style
 
