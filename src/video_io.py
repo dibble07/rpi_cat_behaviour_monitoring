@@ -6,7 +6,6 @@ import subprocess
 import threading
 from collections.abc import Callable
 from datetime import datetime
-from typing import Optional, Union
 
 import cv2
 import numpy as np
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class Cv2Camera:
-    def __init__(self, video_path: Optional[str] = None):
+    def __init__(self, video_path: str | None = None) -> None:
         # initialise camera object
         self.video_path = (
             random.choice(utils.get_video_paths(mock_inputs=True))
@@ -39,7 +38,7 @@ class Cv2Camera:
 
         logger.info("Camera object initialised")
 
-    def __call__(self) -> Optional[np.ndarray]:
+    def __call__(self) -> np.ndarray | None:
         # capture frame from camera
         success, frame = self.cam.read()
         if not success:
@@ -58,7 +57,7 @@ class Cv2Camera:
 
 
 class Picamera2Camera:
-    def __init__(self):
+    def __init__(self) -> None:
         # import raspberry pi specific library
         from picamera2 import Picamera2
 
@@ -93,8 +92,9 @@ class Picamera2Camera:
 
 
 def get_camera(
-    mock_video_path: Optional[str] = None,
-) -> Union[Cv2Camera, Picamera2Camera]:
+    mock_video_path: str | None = None,
+) -> Cv2Camera | Picamera2Camera:
+    """Create the camera source suited to the current platform"""
     match SYSTEM:
         case "Darwin":
             return Cv2Camera(mock_video_path)
@@ -105,7 +105,7 @@ def get_camera(
 
 
 class FfmpegWriter:
-    """Drop-in replacement for cv2.VideoWriter using ffmpeg H.264 encoding."""
+    """Drop-in replacement for cv2.VideoWriter using ffmpeg H.264 encoding"""
 
     def __init__(
         self,
@@ -114,8 +114,10 @@ class FfmpegWriter:
         width: int,
         height: int,
         quality: int,
-        queue_size_callback: Callable[[int], None] | None = None,
+        queue_size_callback: Callable | None = None,
     ) -> None:
+
+        # prepare output path and recording queue
         self.output_path = os.fspath(path)
         self.init_timestamp = os.path.basename(self.output_path).removesuffix(
             ".tmp.mp4"
@@ -124,6 +126,8 @@ class FfmpegWriter:
         self._queue: queue.Queue = queue.Queue(maxsize=25)
         self._report_queue_size()
         self._check_queue_empty()
+
+        # start ffmpeg encoding raw BGR frames from stdin
         cmd = [
             "ffmpeg",
             "-n",
@@ -157,10 +161,13 @@ class FfmpegWriter:
         )
         if self._proc.poll() is not None:
             raise RuntimeError(f"ffmpeg failed to start for {self.output_path}")
+
+        # write queued frames in a background thread
         self._thread = threading.Thread(target=self._writer_loop, daemon=True)
         self._thread.start()
 
     def _check_queue_empty(self) -> None:
+        """Warn if frames are still waiting to be written"""
         pending = self._queue.qsize()
         if pending:
             logger.warning(
@@ -168,16 +175,21 @@ class FfmpegWriter:
             )
 
     def _report_queue_size(self) -> None:
+        """Share the current queue size with the optional callback"""
         if self._queue_size_callback is not None:
             self._queue_size_callback(self._queue.qsize())
 
     def _writer_loop(self) -> None:
+        """Pipe queued frames to ffmpeg until the end-of-stream marker arrives"""
+
+        # get next frame or stop at the end-of-stream marker
         while True:
             item = self._queue.get()
             self._report_queue_size()
             if item is None:
                 break
 
+            # write frame to ffmpeg and log timings
             enqueue_ts, frame_hash, frame = item
             utils.log_timing(logger, "FFmpeg queue delay", enqueue_ts, frame_hash)
             start = datetime.now()
@@ -185,12 +197,14 @@ class FfmpegWriter:
             utils.log_timing(logger, "FFmpeg write", start, frame_hash)
 
     def write(self, frame: np.ndarray, frame_hash: str) -> None:
+        """Queue a frame for encoding"""
         start = datetime.now()
         self._queue.put((start, frame_hash, frame))
         self._report_queue_size()
         utils.log_timing(logger, "FFmpeg enqueue", start, frame_hash)
 
     def release(self) -> None:
+        """Flush queued frames and close the ffmpeg process"""
         self._queue.put(None)
         self._report_queue_size()
         self._thread.join()

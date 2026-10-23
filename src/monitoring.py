@@ -5,18 +5,16 @@ import time
 
 import psutil
 
+import shared
 from config import EXT_MOUNT, INT_MOUNT, SYSTEM
-from shared import (
-    frame_queue,
-    recording_queue_size,
-    shutdown_event,
-)
 
 logger = logging.getLogger(__name__)
 
 
 def _base_device_name(device_path: str) -> str:
-    """Convert partition device path to base block device name."""
+    """Convert partition device path to base block device name"""
+
+    # strip partition suffixes from mmc, nvme and standard device names
     resolved = os.path.realpath(device_path)
     dev = resolved.split("/")[-1]
     if m := re.match(r"^(mmcblk\d+)p\d+$", dev):
@@ -27,16 +25,16 @@ def _base_device_name(device_path: str) -> str:
 
 
 def monitoring_thread() -> None:
-    """Monitor system resources and frame queue status."""
+    """Monitor system resources and frame queue status"""
     logger.info("Monitoring thread started")
 
     # identify internal/external device names
     part = {p.mountpoint: p.device for p in psutil.disk_partitions()}
-    _init_counters = psutil.disk_io_counters(perdisk=True)
+    init_counters = psutil.disk_io_counters(perdisk=True)
     int_dev = _base_device_name(part[INT_MOUNT]) if INT_MOUNT in part else None
-    int_dev = int_dev if int_dev and int_dev in _init_counters else None
+    int_dev = int_dev if int_dev and int_dev in init_counters else None
     ext_dev = _base_device_name(part[EXT_MOUNT]) if EXT_MOUNT in part else None
-    ext_dev = ext_dev if ext_dev and ext_dev in _init_counters else None
+    ext_dev = ext_dev if ext_dev and ext_dev in init_counters else None
     if not int_dev or not ext_dev:
         logger.warning(
             f"Missing storage device: internal device = {int_dev}, external device = {ext_dev}"
@@ -48,14 +46,14 @@ def monitoring_thread() -> None:
     process.cpu_percent()
     prev_rss = prev_cpu = prev_freq_mhz = prev_temp_c = 0
     prev_q_len = prev_recording_q_len = 0
-    prev_int_write_bytes = _init_counters[int_dev].write_bytes if int_dev else None
-    prev_ext_write_bytes = _init_counters[ext_dev].write_bytes if ext_dev else None
+    prev_int_write_bytes = init_counters[int_dev].write_bytes if int_dev else None
+    prev_ext_write_bytes = init_counters[ext_dev].write_bytes if ext_dev else None
     swap = psutil.swap_memory()
     prev_swap_in_bytes = swap.sin
     prev_swap_out_bytes = swap.sout
     last_mono = time.monotonic()
 
-    while not shutdown_event.is_set():
+    while not shared.shutdown_event.is_set():
 
         # timestamps and duration
         elapsed = time.monotonic() - last_mono
@@ -70,46 +68,41 @@ def monitoring_thread() -> None:
         cpu = process.cpu_percent(interval=None) / psutil.cpu_count()
         cpu_delta = cpu - prev_cpu if prev_cpu else 0.0
         prev_cpu = cpu
-        iowait_pct = float(
-            getattr(psutil.cpu_times_percent(interval=None), "iowait", 0.0)
-        )
+        iowait_pct = getattr(psutil.cpu_times_percent(interval=None), "iowait", 0.0)
 
-        # cpu frequency
+        # cpu frequency and temperature
         if SYSTEM == "Linux":
             freq_mhz = psutil.cpu_freq().current
             freq_delta = freq_mhz - prev_freq_mhz if prev_freq_mhz else 0.0
             prev_freq_mhz = freq_mhz
-
-        # cpu temperature
-        if SYSTEM == "Linux":
             temp_c = psutil.sensors_temperatures()["cpu_thermal"][0].current
             temp_delta = temp_c - prev_temp_c if prev_temp_c else 0.0
             prev_temp_c = temp_c
 
-        # queue size
-        frame_q_len = frame_queue.qsize()
+        # queue size (read via module so updates from other threads are visible)
+        frame_q_len = shared.frame_queue.qsize()
         frame_q_delta = frame_q_len - prev_q_len
         prev_q_len = frame_q_len
-        recording_q_len = recording_queue_size
+        recording_q_len = shared.recording_queue_size
         recording_q_delta = recording_q_len - prev_recording_q_len
         prev_recording_q_len = recording_q_len
 
         # disk write rate
-        _counters = psutil.disk_io_counters(perdisk=True)
+        counters = psutil.disk_io_counters(perdisk=True)
         if int_dev:
             int_write_mb_s = (
-                (_counters[int_dev].write_bytes - prev_int_write_bytes)
+                (counters[int_dev].write_bytes - prev_int_write_bytes)
                 / (1024**2)
                 / elapsed
             )
-            prev_int_write_bytes = _counters[int_dev].write_bytes
+            prev_int_write_bytes = counters[int_dev].write_bytes
         if ext_dev:
             ext_write_mb_s = (
-                (_counters[ext_dev].write_bytes - prev_ext_write_bytes)
+                (counters[ext_dev].write_bytes - prev_ext_write_bytes)
                 / (1024**2)
                 / elapsed
             )
-            prev_ext_write_bytes = _counters[ext_dev].write_bytes
+            prev_ext_write_bytes = counters[ext_dev].write_bytes
 
         # swap usage and rates
         swap = psutil.swap_memory()
@@ -154,6 +147,7 @@ def monitoring_thread() -> None:
         log = logger.warning if non_nominal else logger.info
         log(" | ".join(lines))
 
+        # poll more often while metrics are not nominal
         time.sleep(0.5 if non_nominal else 4)
 
     logger.info("Monitoring thread stopped")
