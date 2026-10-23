@@ -5,7 +5,6 @@ import os
 import queue
 from collections import defaultdict, deque
 from datetime import datetime
-from typing import Optional
 
 import numpy as np
 
@@ -24,15 +23,18 @@ from video_io import FfmpegWriter
 logger = logging.getLogger(__name__)
 
 
-def _release_writers(
+def release_writer(
     writer: FfmpegWriter,
-    frame_hash: Optional[str] = None,
+    frame_hash: str | None = None,
     log_msg: str = "",
-) -> Optional[FfmpegWriter]:
-    """Release the video writer, with optional logging."""
+) -> FfmpegWriter | None:
+    """Finish a recording and move it from its temporary to its final path"""
+
+    # prepare optional log context
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
 
+    # close writer and rename the finished video
     writer.release()
     final_path = writer.output_path.replace(".tmp.", ".")
     os.rename(writer.output_path, final_path)
@@ -41,15 +43,15 @@ def _release_writers(
     return None
 
 
-def processing_thread():
+def processing_thread() -> None:
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
 
     # initialise buffers
-    pre_buffer: deque[Frame] = deque(
+    pre_buffer = deque(  # type: ignore[var-annotated]
         maxlen=int(np.ceil(settings.FPS * settings.BUFFER_DUR))
     )
-    processing_buffer: deque[Frame] = deque()
+    processing_buffer = deque()  # type: ignore[var-annotated]
 
     # initialise state and previous frame
     recording = False
@@ -64,18 +66,20 @@ def processing_thread():
         # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
-            start_capture = datetime.now()
-            frame_proc = Frame(
-                timestamp=timestamp,
-                image=image,
-                prev_frame=prev_frame,
-                prev_track_mask=track_manager.all_tracks_mask(
-                    settings.FRAME_WIDTH, settings.FRAME_HEIGHT
-                ),
-                forced_detection_run=frames_since_detection + 1 >= settings.FPS,
-            )
         except queue.Empty:
             continue
+
+        # prepare frame with previous frame and track context
+        start_capture = datetime.now()
+        frame_proc = Frame(
+            timestamp=timestamp,
+            image=image,
+            prev_frame=prev_frame,
+            prev_track_mask=track_manager.all_tracks_mask(
+                settings.FRAME_WIDTH, settings.FRAME_HEIGHT
+            ),
+            forced_detection_run=frames_since_detection + 1 >= settings.FPS,
+        )
 
         logger.debug(f"({frame_proc.hash}) Running processing")
 
@@ -121,14 +125,12 @@ def processing_thread():
 
         # process frames in the buffer if enough frames have been captured
         start_recording = datetime.now()
-        while len(processing_buffer) > int(
-            np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
-        ):
+        while len(processing_buffer) > settings.TRACK_NEW_FRAMES:
 
             # extract frame and check for excluded objects
             frame_rec = processing_buffer.popleft()
             rec_summaries = [
-                track_manager.get_track(id).summary for id in frame_rec.proc_ids
+                track_manager.get_track(i).summary for i in frame_rec.proc_ids
             ]
             rec_summaries_valid = [s for s in rec_summaries if s]
             has_excluded_object = any(not s.object_valid for s in rec_summaries_valid)
@@ -206,7 +208,7 @@ def processing_thread():
                         )
                     elif not rec_summaries_valid:
                         log_msg = "all tracks expired"
-                    writer = _release_writers(
+                    writer = release_writer(
                         writer,
                         frame_rec.hash,
                         log_msg,
@@ -234,6 +236,6 @@ def processing_thread():
         processing_buffer.clear()
     track_manager.remove_tracks("all", video_hash_map=video_hash_map)
     if writer:
-        writer = _release_writers(writer)
+        writer = release_writer(writer)
 
     logger.info("Processing thread stopped")

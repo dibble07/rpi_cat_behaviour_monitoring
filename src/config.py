@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime
@@ -27,8 +28,8 @@ RUN_TIMESTAMP = datetime.now().strftime(TIMESTAMP_FORMAT)
 APP_LOG_PATH = os.path.join(OUTPUT_DIR, f"{RUN_TIMESTAMP}_logs.txt")
 RAW_LOG_PATH = os.path.join(OUTPUT_DIR, f"{RUN_TIMESTAMP}_raw_logs.txt")
 WEB_PLAYER_LOG_PATH = os.path.join(OUTPUT_DIR, f"{RUN_TIMESTAMP}_web_player_logs.txt")
-METADATA_DIR = os.path.join(OUTPUT_DIR, "metadata")
-TRACK_SUMMARIES_PATH = Path(METADATA_DIR) / "track_summaries.json"
+METADATA_DIR = Path(OUTPUT_DIR) / "metadata"
+TRACK_SUMMARIES_PATH = METADATA_DIR / "track_summaries.json"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(METADATA_DIR, exist_ok=True)
@@ -44,17 +45,13 @@ settings.EXCLUDED_OBJECTS = {
 
 # define scaled detection image size
 settings.DETECTION_IMGSZ = (
-    int(
-        ceil(
-            settings.DETECTION_IMGSZ_W
-            / settings.FRAME_WIDTH
-            * settings.FRAME_HEIGHT
-            / 32
-        )
-    )
+    ceil(settings.DETECTION_IMGSZ_W / settings.FRAME_WIDTH * settings.FRAME_HEIGHT / 32)
     * 32,
     settings.DETECTION_IMGSZ_W,
 )
+
+# define number of frames a track may remain new
+settings.TRACK_NEW_FRAMES = ceil(settings.FPS * settings.TRACK_NEW_DUR)
 
 
 # Map annotation colours based on object or cat name
@@ -66,3 +63,23 @@ CAT_COLOUR_MAP = {
     "fluffy": (255, 0, 0),  # blue
     "tabby": (0, 165, 255),  # orange
 }
+
+
+def configure_logging(log_path: str) -> None:
+    """Send application logs to the console and a log file"""
+    logging.basicConfig(
+        level=settings.LOG_LEVEL,
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_path, "a"),
+        ],
+    )
+
+
+def load_track_summaries() -> list[dict]:
+    """Read the saved track summaries, if any have been written yet"""
+    if not TRACK_SUMMARIES_PATH.exists():
+        return []
+    return json.loads(TRACK_SUMMARIES_PATH.read_text())

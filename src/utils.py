@@ -1,46 +1,51 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
 
+if TYPE_CHECKING:
+    import torch
+
 logger = logging.getLogger(__name__)
+_VIDEO_HASHES = {}  # type: ignore[var-annotated]
 
 
 def blur_image(image: np.ndarray) -> np.ndarray:
-    """Create a fixed-size resized greyscale blur of an image."""
-    return cv2.GaussianBlur(
-        cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (640, 480)), (5, 5), 0
-    )
+    """Create a fixed-size resized greyscale blur of an image"""
+    grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    return cv2.GaussianBlur(cv2.resize(grey, (640, 480)), (5, 5), 0)
 
 
 def hash_image(image: np.ndarray) -> str:
-    """Return a short content hash for an image array."""
+    """Fingerprint an image by hashing its blurred greyscale content"""
     if image.ndim != 2:
         image = blur_image(image)
     return hashlib.md5(image.tobytes()).hexdigest()[:8]
 
 
-@lru_cache(maxsize=None)
-def _get_video_hashes(path: str) -> tuple[str, ...]:
-    capture = cv2.VideoCapture(path)
-    hashes = []
-    while True:
-        success, image = capture.read()
-        if not success:
-            break
-        hashes.append(hash_image(image))
-    capture.release()
-    return tuple(hashes)
-
-
 def get_video_hashes(video_path: str | Path) -> tuple[str, ...]:
-    """Return cached per-frame hashes for every decodable frame of a video."""
-    return _get_video_hashes(str(Path(video_path).resolve()))
+    """Hash every decodable frame of a video, caching results per video"""
+    path = str(Path(video_path).resolve())
+
+    # hash frames of videos not already cached
+    if path not in _VIDEO_HASHES:
+        capture = cv2.VideoCapture(path)
+        hashes = []
+        while True:
+            success, image = capture.read()
+            if not success:
+                break
+            hashes.append(hash_image(image))
+        capture.release()
+        _VIDEO_HASHES[path] = tuple(hashes)
+
+    return _VIDEO_HASHES[path]
 
 
 def get_video_paths(
@@ -49,7 +54,7 @@ def get_video_paths(
     raw_behaviour: bool = False,
     raw_detection_identification: bool = False,
 ) -> list[Path]:
-    """Return video paths from selected dataset sources"""
+    """Collect video paths from selected dataset sources"""
 
     # identify source directories
     datasets_root = Path("datasets")
@@ -63,16 +68,11 @@ def get_video_paths(
     if raw_detection_identification:
         source_dirs.append(datasets_root / "raw_detection_identification")
     if not source_dirs:
-        raise FileNotFoundError(f"No source directories found for selected sources")
+        raise FileNotFoundError("No source directories found for selected sources")
 
     # identify all paths with matching extensions
     exts = ("*.avi", "*.mp4")
-    video_paths = [
-        path
-        for source_dir in source_dirs
-        for ext in exts
-        for path in source_dir.glob(ext)
-    ]
+    video_paths = [p for d in source_dirs for e in exts for p in d.glob(e)]
     if not video_paths:
         raise FileNotFoundError(
             f"No paths found in selected sources with extension(s): {exts}"
@@ -88,7 +88,7 @@ def log_timing(
     frame_hash: str = "",
     level: int = logging.DEBUG,
 ) -> float:
-    """Log task duration in milliseconds with optional frame hash and log level."""
+    """Log how long a task has taken since it started"""
     elapsed_sec = (datetime.now() - start_time).total_seconds()
     frame_hash_str = f"({frame_hash}) " if frame_hash else ""
     logger.log(level, f"{frame_hash_str}{task} duration: {elapsed_sec * 1000:.1f} ms")
@@ -100,9 +100,9 @@ class Bbox:
 
     def __init__(
         self,
-        xyxy: Optional[Tuple[int, int, int, int]] = None,
-        cxcywhn: Optional[Tuple[float, float, float, float]] = None,
-        frame_wh: Optional[Tuple[int, int]] = None,
+        xyxy: tuple[int, int, int, int] | None = None,
+        cxcywhn: tuple[float, float, float, float] | None = None,
+        frame_wh: tuple[int, int] | None = None,
     ) -> None:
         if (xyxy is None) == (cxcywhn is None):
             raise ValueError("Provide exactly one of xyxy or cxcywhn")
@@ -161,7 +161,7 @@ class Bbox:
         return int(round((x1 + x2) / 2)), int(round((y1 + y2) / 2)), x2 - x1, y2 - y1
 
 
-def get_best_device():
+def get_best_device() -> torch.device:
     """Identify the best available PyTorch device"""
     import torch  # notebooks only — save memory in prod
 
@@ -188,9 +188,9 @@ def expand_bbox_from_bounds(
     image_width: int,
     image_height: int,
     pad: float,
-    target_aspect_ratio: Optional[float] = None,
+    target_aspect_ratio: float | None = None,
 ) -> list[int]:
-    """Expand a bbox with padding and enforce frame aspect ratio."""
+    """Expand a bbox with padding and enforce frame aspect ratio"""
 
     # identify initial padded bounding box
     pad = int(pad * max(x_max - x_min, y_max - y_min))
@@ -263,6 +263,8 @@ def normalised_entropy(probs: np.ndarray) -> np.ndarray:
 
 def adjust_probabilities_by_context(probs: np.ndarray) -> np.ndarray:
     """Adjust each row's probabilities using entropy-weighted context from other rows"""
+
+    # down-weight classes that other confident rows already claim
     wgt = 1.0 - normalised_entropy(probs)
     probs_adj = []
     for i, prob in enumerate(probs):
@@ -311,17 +313,19 @@ def bbox_overlap(box_a: Bbox, box_b: Bbox) -> tuple[float, float]:
 def nms_boxes(
     boxes: np.ndarray, scores: np.ndarray, iou_threshold: float, iom_threshold: float
 ) -> list:
-    """Return confidence-ranked indices after IoU/IoM NMS on one class of xyxy boxes"""
+    """Suppress overlapping boxes of one class using IoU and IoM thresholds"""
     if len(boxes) == 0:
         return []
 
+    # rank valid boxes by confidence
     sizes = boxes[:, 2:] - boxes[:, :2]
     valid = (sizes > 0).all(axis=1)
     indices = np.flatnonzero(valid)
     order = indices[np.argsort(-scores[indices])]
-    bboxes = [Bbox(xyxy=tuple(box)) for box in boxes]
+    bboxes = [Bbox(xyxy=tuple(b)) for b in boxes]
     keep = []
 
+    # keep the best remaining box and drop those overlapping it
     while order.size:
         selected = order[0]
         keep.append(selected)
@@ -329,7 +333,7 @@ def nms_boxes(
         if not remaining.size:
             break
         iou, iom = np.asarray(
-            [bbox_overlap(bboxes[selected], bboxes[index]) for index in remaining]
+            [bbox_overlap(bboxes[selected], bboxes[i]) for i in remaining]
         ).T
         order = remaining[(iou <= iou_threshold) & (iom < iom_threshold)]
 

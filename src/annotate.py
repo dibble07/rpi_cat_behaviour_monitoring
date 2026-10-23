@@ -9,17 +9,24 @@ import cv2
 import numpy as np
 
 import utils
-from config import CAT_COLOUR_MAP, METADATA_DIR, OBJECT_COLOUR_MAP, OUTPUT_DIR, settings
+from config import (
+    CAT_COLOUR_MAP,
+    METADATA_DIR,
+    OBJECT_COLOUR_MAP,
+    OUTPUT_DIR,
+    load_track_summaries,
+    settings,
+)
 from shared import processing_busy_event, processing_stopped_event
 from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
-_METADATA_DIR = Path(METADATA_DIR)
-_SUMMARIES_PATH = _METADATA_DIR / "track_summaries.json"
-_ANN_FAILS: defaultdict[str, int] = defaultdict(int)
+_ANN_FAILS = defaultdict(int)  # type: ignore[var-annotated]
 
 
 def _load_next_video_metadata() -> dict | None:
+    """Find the next recording that is ready to annotate and load its metadata"""
+
     # identify non-annotated video files
     files = {p for p in Path(OUTPUT_DIR).glob("*.mp4") if p.is_file()}
     ann = {p for p in files if "annotated" in p.name}
@@ -31,9 +38,7 @@ def _load_next_video_metadata() -> dict | None:
     cand -= ann_source
 
     # remove candidates with no corresponding track summaries
-    summaries = (
-        json.loads(_SUMMARIES_PATH.read_text()) if _SUMMARIES_PATH.exists() else []
-    )
+    summaries = load_track_summaries()
     summaries_by_video = {
         n: [s for s in summaries if s["video_name"] == n]
         for n in {s["video_name"] for s in summaries}
@@ -48,10 +53,10 @@ def _load_next_video_metadata() -> dict | None:
         # check metadata presence
         video_summaries = summaries_by_video[video_path.name]
         track_paths = [
-            _METADATA_DIR / f"track-{r['manager_id']}-{r['track_id']}.json"
+            METADATA_DIR / f"track-{r['manager_id']}-{r['track_id']}.json"
             for r in video_summaries
         ]
-        if not all(path.is_file() for path in track_paths):
+        if not all(p.is_file() for p in track_paths):
             continue
 
         # load metadata
@@ -69,25 +74,25 @@ def _load_next_video_metadata() -> dict | None:
     return None
 
 
-def _get_abandoned_annotation_files() -> list[Path]:
-    return [p for p in Path(OUTPUT_DIR).glob("*_annotated.tmp.mp4") if p.is_file()]
-
-
 def _annotate_frame(
     frame: np.ndarray,
     frame_index: int,
-    track_annotations: list[dict[str, dict[str, object]]],
+    track_annotations: list[dict],
     track_summaries: list[dict],
 ) -> None:
+    """Draw each track's bounding box and behaviour label onto a frame"""
     height, width = frame.shape[:2]
     for annotations, summary in zip(track_annotations, track_summaries):
+
+        # choose colour by cat identity, falling back to object type
         colour = CAT_COLOUR_MAP.get(
             summary["cat_id"],
             OBJECT_COLOUR_MAP.get(summary["object_name"], (200, 200, 200)),
         )
+
+        # draw bounding box
         if annotation := annotations.get(str(frame_index)):
-            bbox = annotation["bbox"]
-            x_center, y_center, box_width, box_height = map(float, bbox)  # type: ignore[call-overload]
+            x_center, y_center, box_width, box_height = annotation["bbox"]
             x1 = max(0, int((x_center - box_width / 2) * width))
             y1 = max(0, int((y_center - box_height / 2) * height))
             x2 = min(width - 1, int((x_center + box_width / 2) * width))
@@ -99,8 +104,9 @@ def _annotate_frame(
                 colour,
                 max(2, min(width, height) // 250),
             )
-            if behaviour := annotation.get("behaviour"):
-                text = str(behaviour)
+
+            # draw behaviour label above the box, or below it if there is no room
+            if text := annotation.get("behaviour"):
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 font_scale = max(0.5, min(width, height) / 1200)
                 thickness = max(1, min(width, height) // 500)
@@ -139,6 +145,9 @@ def _annotate_frame(
 
 
 def _is_valid_video(video_path: Path, temp_path: Path) -> bool:
+    """Check that an annotated video matches its source recording"""
+
+    # compare frame count, size and frame rate of both videos
     video_is_file, temp_is_file = video_path.is_file(), temp_path.is_file()
     if valid := video_is_file and temp_is_file:
         video = cv2.VideoCapture(str(video_path))
@@ -167,6 +176,7 @@ def _is_valid_video(video_path: Path, temp_path: Path) -> bool:
 
 
 def _close_annotation(candidate: dict) -> None:
+    """Finish annotating a video, keeping the result only if it is valid"""
 
     # close the video capture and writer
     candidate["capture"].release()
@@ -213,8 +223,11 @@ def annotate_thread() -> None:
         if candidate is None:
 
             # clean up any abandoned annotation files
-            for temp_path in _get_abandoned_annotation_files():
-                video_name = temp_path.name.removesuffix("_annotated.tmp.mp4") + ".mp4"
+            abandoned = [
+                p for p in Path(OUTPUT_DIR).glob("*_annotated.tmp.mp4") if p.is_file()
+            ]
+            for temp_path in abandoned:
+                video_name = f"{temp_path.name.removesuffix('_annotated.tmp.mp4')}.mp4"
                 _ANN_FAILS[video_name] += 1
                 logger.warning(
                     f"Deleting abandoned annotated video: {temp_path} ({_ANN_FAILS[video_name]} attempts)"

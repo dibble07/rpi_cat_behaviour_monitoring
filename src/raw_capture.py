@@ -6,11 +6,23 @@ import threading
 import time
 
 from capture import capture_thread
-from config import OUTPUT_DIR, RAW_LOG_PATH, TIMESTAMP_FORMAT, settings
+from config import (
+    OUTPUT_DIR,
+    RAW_LOG_PATH,
+    TIMESTAMP_FORMAT,
+    configure_logging,
+    settings,
+)
 from detection import Frame
 from monitoring import monitoring_thread
-from processing import _release_writers
-from shared import frame_queue, set_recording_queue_size, shutdown_event
+from processing import release_writer
+from shared import (
+    frame_queue,
+    join_thread,
+    set_recording_queue_size,
+    shutdown_event,
+    wait_for_shutdown,
+)
 from video_io import FfmpegWriter
 
 logger = logging.getLogger(__name__)
@@ -22,15 +34,19 @@ def raw_recording_thread() -> None:
     """Write raw clips from captured frames and rotate periodically"""
     logger.info("Raw recording thread started")
 
-    writer: FfmpegWriter | None = None
-    prev_frame: Frame | None = None
+    # initialise writer state and rotation deadline
+    writer = None
+    prev_frame = None
     rotation_deadline = time.monotonic() + _ROTATION_SECONDS
     while not shutdown_event.is_set() or not frame_queue.empty():
+
+        # get frame from capture queue
         try:
             timestamp, image = frame_queue.get(timeout=0.5)
         except queue.Empty:
             continue
 
+        # hash frame for the video hash map
         frame = Frame(
             timestamp=timestamp,
             image=image,
@@ -40,10 +56,11 @@ def raw_recording_thread() -> None:
         )
         prev_frame = frame
 
+        # rotate to a new video file when due
         now_mono = time.monotonic()
         if writer is None or now_mono >= rotation_deadline:
             if writer is not None:
-                writer = _release_writers(writer, log_msg="raw test rotation")
+                writer = release_writer(writer, log_msg="raw test rotation")
             writer = FfmpegWriter(
                 path=os.path.join(
                     OUTPUT_DIR,
@@ -58,25 +75,19 @@ def raw_recording_thread() -> None:
             rotation_deadline = now_mono + _ROTATION_SECONDS
             logger.warning(f"Starting raw test recording: {writer.output_path}")
 
+        # write frame to current video
         writer.write(frame.image, frame.hash)
 
+    # close the final video
     if writer is not None:
-        writer = _release_writers(writer, log_msg="raw test shutdown")
+        writer = release_writer(writer, log_msg="raw test shutdown")
     logger.info("Raw recording thread stopped")
 
 
-logging.basicConfig(
-    level=settings.LOG_LEVEL,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(RAW_LOG_PATH, "a"),
-    ],
-)
-
+configure_logging(RAW_LOG_PATH)
 faulthandler.enable()
 
+# start threads
 capture_t = threading.Thread(target=capture_thread)
 recording_t = threading.Thread(target=raw_recording_thread)
 monitoring_t = threading.Thread(target=monitoring_thread)
@@ -84,22 +95,12 @@ capture_t.start()
 recording_t.start()
 monitoring_t.start()
 
-try:
-    while not shutdown_event.is_set():
-        time.sleep(0.1)
-except KeyboardInterrupt:
-    shutdown_event.set()
-finally:
-    shutdown_event.set()
+# keep main thread alive until shutdown is requested
+wait_for_shutdown()
 
+# close down application
 logger.info("Waiting for threads to finish...")
-capture_t.join(timeout=5)
-if capture_t.is_alive():
-    logger.warning("Capture thread did not exit cleanly within timeout")
-recording_t.join(timeout=5)
-if recording_t.is_alive():
-    logger.warning("Raw recording thread did not exit cleanly within timeout")
-monitoring_t.join(timeout=5)
-if monitoring_t.is_alive():
-    logger.warning("Monitoring thread did not exit cleanly within timeout")
+join_thread(capture_t, "Capture")
+join_thread(recording_t, "Raw recording")
+join_thread(monitoring_t, "Monitoring")
 logger.info("Application shutdown complete")
