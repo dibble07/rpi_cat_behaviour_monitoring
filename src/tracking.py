@@ -396,7 +396,7 @@ class Track:
         if (
             frame is not None
             and frame.object_name in settings.EXCLUDED_OBJECTS
-            and frame.confidence < settings.TRACK_NEW_CONF_THRESHOLD + 0.1
+            and frame.confidence < settings.TRACK_NEW_CONF_THRESHOLD + 0.01
             and frame_image is not None
         ):
             if (
