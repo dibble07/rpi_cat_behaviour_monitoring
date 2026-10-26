@@ -99,6 +99,7 @@ class TrackSummaryStore:
         mtime = os.path.getmtime(TRACK_SUMMARIES_PATH)
         if mtime != self._mtime:
             self._df = pd.read_json(TRACK_SUMMARIES_PATH, dtype={"manager_id": str})
+            self._df["cat_id"] = self._df["cat_id"].fillna("not a cat")
             self._df["track_start_dt_tm"] = pd.to_datetime(
                 self._df["track_start_dt_tm"]
             ).dt.tz_localize(None)
@@ -154,13 +155,13 @@ def get_tracks() -> Response:
     training_videos = training_video_store.videos
     df["is_training_video"] = df["video_name"].isin(training_videos)
     filters = {
-        "cats": sorted(df["cat_id"].dropna().unique().tolist()),
+        "cats": sorted(df["cat_id"].unique().tolist()),
         "behaviours": sorted({b for v in df["behaviours"] for b in v}),
     }
 
     # filter by cat
     if cat := request.args.get("filter_cat_id", ""):
-        df = df.loc[df.get("cat_id") == cat]
+        df = df.loc[df["cat_id"] == cat]
 
     # filter by behaviour
     if behaviours := set(request.args.getlist("filter_behaviour")):
