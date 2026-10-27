@@ -2,16 +2,18 @@ import logging
 import os
 import queue
 import random
+import re
 import subprocess
 import threading
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 import utils
-from config import SYSTEM, settings
+from config import SYSTEM, TIMESTAMP_FORMAT, settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,11 @@ class Cv2Camera:
         )
         logger.info(f"Using Cv2Camera with mock video: {self.video_path}")
         self.cam = cv2.VideoCapture(self.video_path)
+        if match := re.search(r"\d{8}_\d{6}", Path(self.video_path).name):
+            self._timestamp = datetime.strptime(match.group(), TIMESTAMP_FORMAT)
+        else:
+            pass
+        self._timestamp = datetime.now()
 
         # check resolution set correctly
         width = int(self.cam.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -38,22 +45,26 @@ class Cv2Camera:
 
         logger.info("Camera object initialised")
 
-    def __call__(self) -> np.ndarray | None:
+    def __call__(self) -> tuple[datetime, np.ndarray | None]:
         # capture frame from camera
         success, frame = self.cam.read()
         if not success:
-            return None
+            return self._timestamp, None
 
         # resize to settings specified resolution
         if self._resize and frame is not None:
             frame = cv2.resize(frame, (settings.FRAME_WIDTH, settings.FRAME_HEIGHT))
+
+        # update mock timestamp
+        timestamp = self._timestamp
+        self._timestamp += timedelta(seconds=1 / settings.FPS)
 
         # store for potential buffering
         self._buffer_count = 0
         self._last_frame = frame
 
         logger.debug(f"Frame is of type {type(frame)}")
-        return frame
+        return timestamp, frame
 
 
 class Picamera2Camera:
@@ -85,10 +96,10 @@ class Picamera2Camera:
 
         logger.info("Camera object initialised")
 
-    def __call__(self) -> np.ndarray:
+    def __call__(self) -> tuple[datetime, np.ndarray]:
         frame = self.cam.capture_array()[..., :3]
         logger.debug(f"Frame is of type {type(frame)} and shape {frame.shape}")
-        return frame
+        return datetime.now(), frame
 
 
 def get_camera(
