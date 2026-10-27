@@ -9,17 +9,18 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from utils import get_video_paths
-
 manual_subset = []
 
 
-def main() -> int:
-    video_paths = get_video_paths(
-        mock_inputs=True, mock_inputs_long=True, raw_behaviour=True
-    )
-    if manual_subset:
-        video_paths = [p for p in video_paths if p.name in manual_subset]
+def main(video_paths: list[Path], clear_output: bool = False) -> int:
+    """Run the batch processing workflow"""
+    if clear_output:
+        from config import OUTPUT_DIR
+
+        for path in Path(OUTPUT_DIR).rglob("*"):
+            if path.is_file():
+                path.unlink()
+
     app_path = SRC_ROOT / "app.py"
 
     for index, video_path in enumerate(video_paths, start=1):
@@ -44,9 +45,18 @@ def main() -> int:
 
         print(f"[{index}/{len(video_paths)}] Completed {video_path}", flush=True)
 
-    print("All mock input videos completed successfully.", flush=True)
+    print("All videos completed successfully.", flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from utils import get_video_paths
+
+    video_paths = get_video_paths(
+        mock_inputs=True, mock_inputs_long=True, raw_behaviour=True
+    )
+
+    if manual_subset:
+        video_paths = [p for p in video_paths if p.name in manual_subset]
+
+    raise SystemExit(main(video_paths))
