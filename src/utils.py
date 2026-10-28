@@ -72,7 +72,7 @@ def get_video_paths(
 
     # identify all paths with matching extensions
     exts = ("*.avi", "*.mp4")
-    video_paths = [p for d in source_dirs for e in exts for p in d.glob(e)]
+    video_paths = list({p for d in source_dirs for e in exts for p in d.glob(e)})
     if not video_paths:
         raise FileNotFoundError(
             f"No paths found in selected sources with extension(s): {exts}"
