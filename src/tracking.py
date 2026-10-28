@@ -663,6 +663,7 @@ class TrackManager:
                 embeddings = {f.frame_hash: f.roi_embedding for f in frames if f}
                 full_track = {
                     "video_path": cam.video_path,
+                    "object_name": track.summary.object_name,
                     "cat_id": track.summary.cat_name,
                     "frame_hashes": frame_hashes,
                     "images": images,
