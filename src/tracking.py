@@ -317,7 +317,7 @@ class Track:
         self.expired_at_frame_count: int | None = None
         self.behaviour_history: dict[str, str] = {}
         self._behaviour_hidden_state: np.ndarray | None = None
-        self.excluded_object_sample: tuple[float, str, np.ndarray] | None = None
+        self.training_sample: tuple[float, str, np.ndarray] | None = None
         self.append(frame, frame_image)
 
     def __len__(self) -> int:
@@ -392,18 +392,17 @@ class Track:
     ) -> None:
         """Add a frame's match, or a gap, and refresh the track summary"""
 
-        # keep the lowest-confidence excluded-object frame as a training sample
+        # keep the lowest-confidence frame as a training sample
         if (
             frame is not None
-            and frame.object_name in settings.EXCLUDED_OBJECTS
             and frame.confidence < settings.TRACK_NEW_CONF_THRESHOLD + 0.01
             and frame_image is not None
         ):
             if (
-                self.excluded_object_sample is None
-                or frame.confidence < self.excluded_object_sample[0]
+                self.training_sample is None
+                or frame.confidence < self.training_sample[0]
             ):
-                self.excluded_object_sample = (
+                self.training_sample = (
                     frame.confidence,
                     frame.frame_hash,
                     frame_image.copy(),
@@ -812,15 +811,15 @@ class TrackManager:
 
         # remove selected tracks
         for track in tracks_to_delete:
-            if track.summary.confirmed and track.excluded_object_sample is not None:
-                conf, frame_hash, image = track.excluded_object_sample
+            if track.summary.confirmed and track.training_sample is not None:
+                conf, frame_hash, image = track.training_sample
                 sample_path = (
                     METADATA_DIR
-                    / f"excluded-{self.manager_id}-track-{track.track_id}-{frame_hash}.jpg"
+                    / f"training-{self.manager_id}-track-{track.track_id}-{frame_hash}.jpg"
                 )
                 cv2.imwrite(str(sample_path), image)
                 logger.info(
-                    f"Saved excluded-object training sample "
+                    f"Saved low-confidence training sample "
                     f"(conf={conf:.3f}): {sample_path}"
                 )
             if track.summary.confirmed and track.summary.object_valid:
