@@ -1,6 +1,7 @@
 BACKGROUND_HISTORY = 10 # Frames used for background context
 BUFFER_DUR = 5 # Seconds to keep in rolling buffer
 CONF = 0.2 # Minimum detection confidence
+VERIFY_DETECTIONS = false # Verify detections with the detection verification model
 EXCLUDED_OBJECTS = "person" # Object names to exclude from recording
 FPS = 5 # Capture frames per second
 FRAME_HEIGHT = 1296 # Camera frame height in pixels
