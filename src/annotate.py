@@ -278,7 +278,7 @@ def annotate_thread() -> None:
             if success:
                 frame_index = candidate["frame_index"]
                 frame_hash = candidate["frame_hashes"][frame_index]
-                lg = logger.info if frame_index % 10 == 0 else logger.debug
+                lg = logger.info if frame_index % 50 == 0 else logger.debug
                 lg(
                     f"Annotating frame {frame_index} ({frame_hash}) of {candidate['video_path']}"
                 )
