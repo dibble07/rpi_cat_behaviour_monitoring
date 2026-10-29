@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
+import joblib
 import ncnn
 import numpy as np
 import yaml  # type: ignore[import-untyped]
@@ -15,6 +16,8 @@ from config import settings
 from tracking import TrackFrame, TrackSummary
 
 logger = logging.getLogger(__name__)
+
+_VERIFICATION_MODEL = joblib.load(Path("models") / "detection_verification.joblib")
 
 
 class _Tensor:
@@ -294,7 +297,7 @@ class Frame:
             )
         return self._search_bbox
 
-    def detect_objects(self) -> tuple[list, bool]:
+    def detect_objects(self) -> tuple[list[TrackFrame], bool]:
         """Detect objects within the search region and wrap them for tracking"""
         track_frames = []
 
@@ -356,6 +359,22 @@ class Frame:
 
             # log detection duration
             utils.log_timing(logger, "Object detection", start, self.hash)
+
+            # verify detections after object detection timing has completed
+            if settings.VERIFY_DETECTIONS and track_frames:
+                embeddings = [f.roi_embedding for f in track_frames]
+
+                # compare verifier predictions with detected classes
+                start = datetime.now()
+                verified_track_frames = []
+                for frame, emb in zip(track_frames, embeddings):
+                    if (
+                        _VERIFICATION_MODEL.predict(emb[None, :])[0]
+                        == frame.object_name
+                    ):
+                        verified_track_frames.append(frame)
+                track_frames = verified_track_frames
+                utils.log_timing(logger, "Detection verification", start, self.hash)
 
             # log detections
             if track_frames:
