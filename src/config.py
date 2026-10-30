@@ -22,7 +22,7 @@ if os.path.ismount(EXT_MOUNT):
     OUTPUT_DIR = os.path.join(EXT_MOUNT, OUTPUT_DIR_NAME)
 else:
     OUTPUT_DIR = OUTPUT_DIR_NAME
-    logger.warning(f"HDD not mounted at {EXT_MOUNT}, falling back to internal storage")
+    # logger.info(f"HDD not mounted at {EXT_MOUNT}, falling back to internal storage")
 
 RUN_TIMESTAMP = datetime.now().strftime(TIMESTAMP_FORMAT)
 APP_LOG_PATH = os.path.join(OUTPUT_DIR, f"{RUN_TIMESTAMP}_logs.txt")
@@ -35,8 +35,10 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(METADATA_DIR, exist_ok=True)
 
 # load settings
-_SETTINGS_PATH_GENERAL = os.path.join(os.path.dirname(__file__), "settings.toml")
-settings = Dynaconf(settings_files=_SETTINGS_PATH_GENERAL)
+_SETTINGS_PATH_GENERAL = Path(__file__).with_name("settings.toml")
+SETTINGS_PATH_OVERRIDE = Path(__file__).with_name("settings-override.toml")
+settings_files = [str(_SETTINGS_PATH_GENERAL), str(SETTINGS_PATH_OVERRIDE)]
+settings = Dynaconf(settings_files=settings_files)
 
 # process excluded objects
 settings.EXCLUDED_OBJECTS = {
