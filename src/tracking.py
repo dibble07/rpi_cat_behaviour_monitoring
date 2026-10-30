@@ -31,6 +31,17 @@ from video_io import Cv2Camera, FfmpegWriter
 
 logger = logging.getLogger(__name__)
 
+# configure the component weights used by track matching
+TRACK_MATCH_WEIGHTS = (
+    settings.TRACK_MATCH_WEIGHT_IOU,
+    settings.TRACK_MATCH_WEIGHT_CENTROID,
+    settings.TRACK_MATCH_WEIGHT_CONFIDENCE,
+    settings.TRACK_MATCH_WEIGHT_VISUAL,
+    settings.TRACK_MATCH_WEIGHT_RECENCY,
+    settings.TRACK_MATCH_WEIGHT_AGE,
+    settings.TRACK_MATCH_WEIGHT_SIZE,
+)
+
 
 CAT_CLASSIFICATION_MODEL = joblib.load(Path("models") / "identification.joblib")
 
@@ -376,7 +387,7 @@ class Track:
             # aggregate component scores
             score = np.average(
                 [iou, centroid_sim, conf, visual, recency_score, age_score, size_sim],
-                weights=[2, 2, 2, 3, 1, 0.5, 1],
+                weights=TRACK_MATCH_WEIGHTS,
             )
             logger.debug(
                 f"({self.frame_hash}) Track {self.track_id} match score (candidate_conf={candidate.confidence:.3f})"
@@ -495,15 +506,15 @@ class Track:
             case TrackState.NEW:
                 new_frame_count = settings.TRACK_NEW_FRAMES
                 frames_init_valid = [f for f in self.frames[:new_frame_count] if f]
+                confident_frame_count = sum(
+                    f.confidence >= settings.TRACK_NEW_CONF_THRESHOLD
+                    for f in frames_init_valid
+                )
                 if (
-                    len(frames_init_valid) > new_frame_count / 2
-                    and sum(
-                        [
-                            f.confidence >= settings.TRACK_NEW_CONF_THRESHOLD
-                            for f in frames_init_valid
-                        ]
-                    )
-                    > new_frame_count / 4
+                    len(frames_init_valid) / new_frame_count
+                    > settings.TRACK_NEW_MIN_DETECTION_RATIO
+                    and confident_frame_count / new_frame_count
+                    > settings.TRACK_NEW_MIN_CONF_RATIO
                 ):
                     state = TrackState.ACTIVE
                 elif new_frame_count >= frame_count:
