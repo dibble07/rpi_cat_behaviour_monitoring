@@ -40,6 +40,7 @@ TRACK_MATCH_WEIGHTS = (
     settings.TRACK_MATCH_WEIGHT_RECENCY,
     settings.TRACK_MATCH_WEIGHT_AGE,
     settings.TRACK_MATCH_WEIGHT_SIZE,
+    settings.TRACK_MATCH_WEIGHT_IDENTITY,
 )
 
 
@@ -304,6 +305,7 @@ class TrackSummary:
     confirmed: bool = False
     cat_name: str | None = None
     cat_conf: float | None = None
+    cat_name_proba: np.ndarray | None = field(default=None, repr=False)
 
     def __bool__(self) -> bool:
         return self.confirmed and bool(self.state)
@@ -384,15 +386,33 @@ class Track:
             track_age = self.summary.latest_detection_index
             age_score = 1 - np.exp(-track_age / settings.FPS)
 
+            # cat identity agreement
+            identity_score = (
+                self.summary.cat_name_proba @ candidate.cat_name_proba_adjusted
+                if self.summary.object_name == "cat"
+                else np.nan
+            )
+
             # aggregate component scores
-            score = np.average(
-                [iou, centroid_sim, conf, visual, recency_score, age_score, size_sim],
+            comp_scores = [
+                iou,
+                centroid_sim,
+                conf,
+                visual,
+                recency_score,
+                age_score,
+                size_sim,
+                identity_score,
+            ]
+            score = np.ma.average(
+                np.ma.masked_where(np.isnan(comp_scores), comp_scores),
                 weights=TRACK_MATCH_WEIGHTS,
             )
             logger.debug(
                 f"({self.frame_hash}) Track {self.track_id} match score (candidate_conf={candidate.confidence:.3f})"
                 f": iou={iou:.3f} centroid_sim={centroid_sim:.3f} conf={conf:.3f} visual={visual:.3f} "
-                f"recency_score={recency_score:.3f} age_score={age_score:.3f} size_sim={size_sim:.3f} score={score:.3f}"
+                f"recency_score={recency_score:.3f} age_score={age_score:.3f} size_sim={size_sim:.3f} "
+                f"identity_score={identity_score:.3f} score={score:.3f}"
             )
             return score
         else:
@@ -549,16 +569,18 @@ class Track:
             if last_frame.object_name == "cat":
                 probs = np.stack([f.cat_name_proba_adjusted for f in self.frames if f])
                 ent_wgt = utils.entropy_weights(probs)
-                probs_avg = np.average(probs, axis=0, weights=ent_wgt)
-                cat_id = int(np.argmax(probs_avg))
+                cat_name_proba = np.average(probs, axis=0, weights=ent_wgt)
+                cat_id = int(np.argmax(cat_name_proba))
                 cat_name = CAT_CLASSIFICATION_MODEL.classes_[cat_id]
-                cat_conf = probs_avg[cat_id]
+                cat_conf = cat_name_proba[cat_id]
             else:
                 cat_name = None
                 cat_conf = None
+                cat_name_proba = None
         else:
             cat_name = prev_summary.cat_name
             cat_conf = prev_summary.cat_conf
+            cat_name_proba = prev_summary.cat_name_proba
 
         # record when the track expired
         if not state and prev_summary.state:
@@ -585,6 +607,7 @@ class Track:
             confirmed=confirmed,
             cat_name=cat_name,
             cat_conf=cat_conf,
+            cat_name_proba=cat_name_proba,
         )
 
         # log updates
