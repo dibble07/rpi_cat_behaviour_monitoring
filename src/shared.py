@@ -42,6 +42,7 @@ def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
 
 # prepare threadsafe queues and queue-size telemetry
 frame_queue = queue.Queue()  # type: ignore[var-annotated]
+capture_stopped_event = threading.Event()
 recording_queue_size = 0
 processing_busy_event = threading.Event()
 processing_stopped_event = threading.Event()

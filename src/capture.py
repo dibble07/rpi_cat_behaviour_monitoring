@@ -5,7 +5,7 @@ from datetime import datetime
 
 import utils
 from config import SYSTEM, settings
-from shared import cam, frame_queue, shutdown_event
+from shared import cam, capture_stopped_event, frame_queue, shutdown_event
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ def capture_thread() -> None:
                 f"Camera source ended with queue size: {frame_queue.qsize()}, shutting down capture thread"
             )
             shutdown_event.set()
+            capture_stopped_event.set()
             continue
 
         # enqueue the frame

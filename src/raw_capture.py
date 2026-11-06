@@ -17,10 +17,10 @@ from detection import Frame
 from monitoring import monitoring_thread
 from processing import release_writer
 from shared import (
+    capture_stopped_event,
     frame_queue,
     join_thread,
     set_recording_queue_size,
-    shutdown_event,
     wait_for_shutdown,
 )
 from video_io import FfmpegWriter
@@ -38,7 +38,7 @@ def raw_recording_thread() -> None:
     writer = None
     prev_frame = None
     rotation_deadline = time.monotonic() + _ROTATION_SECONDS
-    while not shutdown_event.is_set() or not frame_queue.empty():
+    while not capture_stopped_event.is_set() or not frame_queue.empty():
 
         # get frame from capture queue
         try:
