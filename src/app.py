@@ -1,23 +1,14 @@
 import faulthandler
 import logging
 
-from config import APP_LOG_PATH, settings
+from config import APP_LOG_PATH, configure_logging
 
-logging.basicConfig(
-    level=settings.LOG_LEVEL,
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(APP_LOG_PATH, "a"),
-    ],
-)
+configure_logging(APP_LOG_PATH)
 
 logger = logging.getLogger(__name__)
 faulthandler.enable()
 
 import threading
-import time
 
 import shared
 from annotate import annotate_thread
@@ -36,31 +27,19 @@ annotation_t.start()
 monitoring_t.start()
 
 # keep main thread alive until shutdown is requested
-try:
-    while not shared.shutdown_event.is_set():
-        time.sleep(0.1)
-except KeyboardInterrupt:
-    shared.shutdown_event.set()
-finally:
-    shared.shutdown_event.set()
+shared.wait_for_shutdown()
 
 # close down application
 logger.info("Waiting for threads to finish...")
-capture_t.join(timeout=5)
-if capture_t.is_alive():
-    logger.warning("Capture thread did not exit cleanly within timeout")
-processing_t.join(timeout=5)
-if processing_t.is_alive():
-    logger.warning("Processing thread did not exit cleanly within timeout")
+shared.join_thread(capture_t, "Capture")
+shared.join_thread(processing_t, "Processing")
 while annotation_t.is_alive():
     if not processing_t.is_alive():
         shared.processing_busy_event.clear()
         shared.processing_stopped_event.set()
     logger.info("Waiting for pending video annotations to finish...")
     annotation_t.join(timeout=5)
-monitoring_t.join(timeout=5)
-if monitoring_t.is_alive():
-    logger.warning("Monitoring thread did not exit cleanly within timeout")
+shared.join_thread(monitoring_t, "Monitoring")
 if shared.thread_exception is not None:
     logger.error("Application shutdown due to an unhandled thread exception")
     raise SystemExit(1)
