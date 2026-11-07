@@ -5,7 +5,7 @@ import os
 import queue
 from collections import defaultdict, deque
 from datetime import datetime
-from typing import Optional
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -13,10 +13,10 @@ import utils
 from config import OUTPUT_DIR, TIMESTAMP_FORMAT, settings
 from detection import Frame
 from shared import (
+    capture_stopped_event,
     frame_queue,
     processing_busy_event,
     set_recording_queue_size,
-    shutdown_event,
 )
 from tracking import TrackManager, VideoHashMap
 from video_io import FfmpegWriter
@@ -24,32 +24,35 @@ from video_io import FfmpegWriter
 logger = logging.getLogger(__name__)
 
 
-def _release_writers(
+def release_writer(
     writer: FfmpegWriter,
-    frame_hash: Optional[str] = None,
+    frame_hash: str | None = None,
     log_msg: str = "",
-) -> Optional[FfmpegWriter]:
-    """Release the video writer, with optional logging."""
+) -> FfmpegWriter | None:
+    """Finish a recording and move it from its temporary to its final path"""
+
+    # prepare optional log context
     hash_msg = f"({frame_hash}) " if frame_hash else ""
     log_msg = f" ({log_msg})" if log_msg else ""
 
+    # close writer and rename the finished video
     writer.release()
     final_path = writer.output_path.replace(".tmp.", ".")
     os.rename(writer.output_path, final_path)
-    logger.warning(f"{hash_msg}Saving recording{log_msg}: {final_path}")
+    logger.info(f"{hash_msg}Saving recording{log_msg}: {final_path}")
 
     return None
 
 
-def processing_thread():
+def processing_thread() -> None:
     """Process frames to detect objects and record videos"""
     logger.info("Processing thread started")
 
     # initialise buffers
-    pre_buffer: deque[Frame] = deque(
+    pre_buffer = deque(  # type: ignore[var-annotated]
         maxlen=int(np.ceil(settings.FPS * settings.BUFFER_DUR))
     )
-    processing_buffer: deque[Frame] = deque()
+    processing_buffer = deque()  # type: ignore[var-annotated]
 
     # initialise state and previous frame
     recording = False
@@ -59,12 +62,25 @@ def processing_thread():
     track_manager = TrackManager()
     video_hash_map = VideoHashMap()
 
-    while not shutdown_event.is_set() or not frame_queue.empty():
+    while (
+        not capture_stopped_event.is_set()
+        or not frame_queue.empty()
+        or processing_buffer
+    ):
 
         # get frame from capture queue
+        start_capture = datetime.now()
         try:
             timestamp, image = frame_queue.get(timeout=0.1)
-            start_capture = datetime.now()
+        except queue.Empty:
+            if not capture_stopped_event.is_set():
+                continue
+            frame_proc: Frame | SimpleNamespace = SimpleNamespace(
+                hash="", has_search_area=False, forced_detection_run=False
+            )
+        else:
+
+            # prepare frame with previous frame and track context
             frame_proc = Frame(
                 timestamp=timestamp,
                 image=image,
@@ -74,12 +90,9 @@ def processing_thread():
                 ),
                 forced_detection_run=frames_since_detection + 1 >= settings.FPS,
             )
-        except queue.Empty:
-            continue
 
-        logger.debug(f"({frame_proc.hash}) Running processing")
-
-        # detect objects
+        # coordinate detection and draining with annotation
+        draining = capture_stopped_event.is_set() and frame_queue.empty()
         if (
             frame_proc.has_search_area
             or frame_proc.forced_detection_run
@@ -89,46 +102,52 @@ def processing_thread():
             processing_busy_event.set()
         else:
             processing_busy_event.clear()
-        track_frames, did_run_detection = frame_proc.detect_objects()
 
-        # update tracking state
-        track_manager.update(
-            track_frames,
-            frame_proc.hash,
-            video_hash_map=video_hash_map,
-            frame_image=frame_proc.image,
-        )
-        frame_proc.proc_ids = [
-            t.summary.track_id for t in track_manager.non_expired_tracks
-        ]
+        # process the current frame if it is a valid Frame instance
+        if isinstance(frame_proc, Frame):
+            logger.debug(f"({frame_proc.hash}) Running processing")
 
-        # add captured frame to processing buffer
-        processing_buffer.append(frame_proc)
+            # detect objects
+            track_frames, did_run_detection = frame_proc.detect_objects()
 
-        # update non-detection counter
-        if did_run_detection:
-            frames_since_detection = 0
-        else:
-            frames_since_detection += 1
+            # update tracking state
+            track_manager.update(
+                track_frames,
+                frame_proc.hash,
+                video_hash_map=video_hash_map,
+                frame_image=frame_proc.image,
+            )
+            frame_proc.proc_ids = [
+                t.summary.track_id for t in track_manager.non_expired_tracks
+            ]
 
-        # update current frame to be previous frame
-        prev_frame = frame_proc
+            # add captured frame to processing buffer
+            processing_buffer.append(frame_proc)
+
+            # update non-detection counter
+            if did_run_detection:
+                frames_since_detection = 0
+            else:
+                frames_since_detection += 1
+
+            # update current frame to be previous frame
+            prev_frame = frame_proc
 
         # log processing rate
         elapsed_capture = utils.log_timing(
             logger, "Processing", start_capture, frame_proc.hash
         )
 
-        # process frames in the buffer if enough frames have been captured
+        # process frames in the buffer
         start_recording = datetime.now()
-        while len(processing_buffer) > int(
-            np.ceil(settings.FPS * settings.TRACK_NEW_DUR)
+        while (processing_buffer and draining) or (
+            len(processing_buffer) > settings.TRACK_NEW_FRAMES
         ):
 
             # extract frame and check for excluded objects
             frame_rec = processing_buffer.popleft()
             rec_summaries = [
-                track_manager.get_track(id).summary for id in frame_rec.proc_ids
+                track_manager.get_track(i).summary for i in frame_rec.proc_ids
             ]
             rec_summaries_valid = [s for s in rec_summaries if s]
             has_excluded_object = any(not s.object_valid for s in rec_summaries_valid)
@@ -176,7 +195,7 @@ def processing_thread():
                             settings.VIDEO_QUALITY,
                             queue_size_callback=set_recording_queue_size,
                         )
-                        logger.warning(
+                        logger.info(
                             f"({frame_rec.hash}) Starting recording: {writer.output_path}"
                         )
                         pre_buffer_len = len(pre_buffer)
@@ -206,7 +225,7 @@ def processing_thread():
                         )
                     elif not rec_summaries_valid:
                         log_msg = "all tracks expired"
-                    writer = _release_writers(
+                    writer = release_writer(
                         writer,
                         frame_rec.hash,
                         log_msg,
@@ -229,11 +248,8 @@ def processing_thread():
             logger.warning(f"Processing/recording thread slow: {overall_fps:.1f} FPS")
 
     # cleanup
-    if processing_buffer:
-        logger.info(f"Discarding {len(processing_buffer)} delayed frame(s)")
-        processing_buffer.clear()
     track_manager.remove_tracks("all", video_hash_map=video_hash_map)
     if writer:
-        writer = _release_writers(writer)
+        writer = release_writer(writer)
 
     logger.info("Processing thread stopped")
