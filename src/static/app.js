@@ -115,7 +115,7 @@ async function updateTrainingVideo() {
 }
 
 async function clearAllTrainingVideos() {
-    if (!confirm('Clear all training video selections?')) return;
+    if (!confirm('Clear all training video selections and training JPG samples?')) return;
     try {
         await fetchJson('/api/training-videos', { method: 'DELETE' });
         await update();

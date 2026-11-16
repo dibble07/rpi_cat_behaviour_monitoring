@@ -202,6 +202,8 @@ def update_training_videos() -> Response:
 
     # clear all selections
     if request.method == "DELETE":
+        for path in METADATA_DIR.glob("training-*.jpg"):
+            path.unlink()
         return jsonify({"training_videos": list(training_video_store.clear())})
 
     # update selection for one video
