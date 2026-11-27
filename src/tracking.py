@@ -4,10 +4,12 @@ import hashlib
 import json
 import logging
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import IntEnum, auto
 from functools import lru_cache
+from itertools import groupby
 from pathlib import Path
 
 import cv2
@@ -657,6 +659,14 @@ class TrackManager:
             end_match = video_hash_map.get(video_track_hashes[-1])
             start_offset_s = start_match["video_hash_index"] / settings.FPS
             end_offset_s = end_match["video_hash_index"] / settings.FPS
+            behaviours = (
+                track.behaviour_history.get(f.frame_hash) if f else None
+                for f in track.frames
+            )
+            max_run = defaultdict(int)  # type: ignore[var-annotated]
+            for behaviour, run in groupby(behaviours):
+                if behaviour is not None:
+                    max_run[behaviour] = max(max_run[behaviour], len(list(run)))
             row = {
                 "manager_id": self.manager_id,
                 "track_id": track.track_id,
@@ -665,7 +675,7 @@ class TrackManager:
                 "track_elapsed_end_s": end_offset_s,
                 "cat_id": track.summary.cat_name,
                 "object_name": track.summary.object_name,
-                "behaviours": list(set(track.behaviour_history.values())),
+                "behaviours": {b: n / settings.FPS for b, n in max_run.items()},
                 "track_start_dt_tm": (
                     start_match["video_start_dt_tm"] + timedelta(seconds=start_offset_s)
                 ).isoformat(timespec="microseconds"),
