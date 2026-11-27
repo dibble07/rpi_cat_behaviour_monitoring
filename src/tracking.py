@@ -660,13 +660,13 @@ class TrackManager:
             start_offset_s = start_match["video_hash_index"] / settings.FPS
             end_offset_s = end_match["video_hash_index"] / settings.FPS
             behaviours = (
-                track.behaviour_history.get(f.frame_hash) if f else None
+                track.behaviour_history[f.frame_hash]
                 for f in track.frames
+                if f and f.frame_hash in track.behaviour_history
             )
             max_run = defaultdict(int)  # type: ignore[var-annotated]
             for behaviour, run in groupby(behaviours):
-                if behaviour is not None:
-                    max_run[behaviour] = max(max_run[behaviour], len(list(run)))
+                max_run[behaviour] = max(max_run[behaviour], len(list(run)))
             row = {
                 "manager_id": self.manager_id,
                 "track_id": track.track_id,
