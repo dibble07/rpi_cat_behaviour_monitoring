@@ -6,6 +6,7 @@ const behaviourOptions = document.getElementById('behaviourOptions');
 const behaviourFilterSummary = document.getElementById('behaviourFilterSummary');
 const after = document.getElementById('filterTrackTimeAfter');
 const before = document.getElementById('filterTrackTimeBefore');
+const duration = document.getElementById('filterTrackDuration');
 const trainingFilter = document.getElementById('filterTrainingVideo');
 const tbody = document.getElementById('tracksBody');
 const video = document.getElementById('videoPlayer');
@@ -31,6 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     after.addEventListener('change', update);
     before.addEventListener('change', update);
+    duration.addEventListener('change', () => {
+        duration.reportValidity();
+        update();
+    });
     trainingFilter.addEventListener('change', update);
     trainingVideoCheckbox.addEventListener('change', updateTrainingVideo);
     clearTrainingVideos.addEventListener('click', clearAllTrainingVideos);
@@ -49,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function update() {
+    if (!duration.checkValidity()) return;
     const selected = behaviourOptions.querySelectorAll('input:checked');
     behaviourFilterSummary.textContent = selected.length ? `${selected.length} selected` : 'All Behaviours';
     const p = new URLSearchParams({
@@ -57,6 +63,7 @@ async function update() {
         filter_cat_id: cat.value,
         filter_track_time_after: after.value,
         filter_track_time_before: before.value,
+        filter_track_duration_min_s: duration.value ? durationToSeconds(duration.value) : '',
     });
     if (trainingFilter.value) p.set('filter_training_video', trainingFilter.value);
     selected.forEach(checkbox => p.append('filter_behaviour', checkbox.value));
@@ -157,6 +164,11 @@ function formatDuration(seconds) {
     return [hours, minutes, remainingSeconds]
         .map(value => String(value).padStart(2, '0'))
         .join(':');
+}
+
+function durationToSeconds(duration) {
+    const [hours, minutes, seconds] = duration.split(':').map(Number);
+    return hours * 3600 + minutes * 60 + seconds;
 }
 
 function formatTrackTime(seconds) {

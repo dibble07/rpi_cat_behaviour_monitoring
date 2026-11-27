@@ -182,6 +182,10 @@ def get_tracks() -> Response:
     if before := request.args.get("filter_track_time_before", ""):
         df = df.loc[df["track_start_dt_tm"] <= pd.Timestamp(before).tz_localize(None)]
 
+    # filter by minimum track duration
+    if min_duration := request.args.get("filter_track_duration_min_s", ""):
+        df = df.loc[df["duration_s"] >= float(min_duration)]
+
     # sort and serialise tracks
     sort_by = request.args.get("sort_by", "track_start_dt_tm")
     reverse = request.args.get("sort_dir", "desc") == "desc"
