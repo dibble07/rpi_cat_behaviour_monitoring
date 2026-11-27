@@ -103,7 +103,9 @@ class TrackSummaryStore:
             self._df["track_start_dt_tm"] = pd.to_datetime(
                 self._df["track_start_dt_tm"]
             ).dt.tz_localize(None)
-            self._df["behaviours"] = self._df["behaviours"].apply(sorted)
+            self._df["behaviours"] = self._df["behaviours"].apply(
+                lambda v: sorted(b for b, s in v.items() if s >= 3)
+            )
             self._df["duration_s"] = (
                 self._df["track_elapsed_end_s"] - self._df["track_elapsed_start_s"]
             )
